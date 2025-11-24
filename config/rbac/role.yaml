@@ -1,0 +1,84 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods/resize
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - ""
+  - policy
+  resources:
+  - pods/eviction
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - mcoperator.sdv.com
+  resources:
+  - mckuberealtime
+  - mckuberealtimes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - mcoperator.sdv.com
+  resources:
+  - mckubes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - mcoperator.sdv.com
+  resources:
+  - mckubes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - mcoperator.sdv.com
+  resources:
+  - mckubes/status
+  verbs:
+  - get
+  - patch
+  - update

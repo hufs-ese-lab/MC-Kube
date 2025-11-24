@@ -1,0 +1,25 @@
+apiVersion: mcoperator.sdv.com/v1
+kind: McKube
+metadata:
+  name: rt-test-pod-config
+  namespace: default
+spec:
+  podname: "rt-test-pod"
+  criticality: "High"
+  rtSettings:
+    period: 1000000        # 1 second in microseconds
+    runtime_low: 300000    # 300ms initial runtime (conservative)
+    runtime_hi: 500000     # 500ms elevated runtime (after overrun detection)
+    core: "2"            # Use cores 2
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rt-test-pod
+  namespace: default
+  labels:
+    app: rt-test
+spec:
+  containers:
+  - name: test-container
+    image: nginx:latest

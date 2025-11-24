@@ -1,0 +1,95 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.1
+  name: mckubes.mcoperator.sdv.com
+spec:
+  group: mcoperator.sdv.com
+  names:
+    kind: McKube
+    listKind: McKubeList
+    plural: mckubes
+    singular: mckube
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: McKube is the Schema for the mckubes API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: McKubeSpec defines the desired state of McKube
+            properties:
+              criticality:
+                description: 'Criticality defines the priority level: Low, Middle,
+                  or High'
+                enum:
+                - Low
+                - Middle
+                - High
+                type: string
+              node:
+                type: string
+              podname:
+                type: string
+              pressuredDeadlinesPeriod:
+                type: integer
+              pressuredDeadlinesTotal:
+                type: integer
+              rtSettings:
+                description: RT Cgroup settings
+                properties:
+                  core:
+                    type: string
+                  period:
+                    type: integer
+                  runtime_hi:
+                    type: integer
+                  runtime_low:
+                    type: integer
+                required:
+                - period
+                - runtime_hi
+                - runtime_low
+                type: object
+            type: object
+          status:
+            description: McKubeStatus defines the observed state of McKube
+            properties:
+              allocatedCore:
+                description: AllocatedCore tracks the actual core allocated to the
+                  pod (may differ from Spec.RTSettings.Core due to preemption)
+                type: string
+              currentRuntime:
+                description: CurrentRuntime tracks whether the pod is using runtime_low
+                  or runtime_hi
+                type: string
+              lastOverrunTime:
+                description: LastOverrunTime tracks when the last overrun was detected
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
