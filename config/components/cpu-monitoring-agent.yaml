@@ -1,0 +1,108 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cpu-agent
+  namespace: system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cpu-agent
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cpu-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cpu-agent
+subjects:
+- kind: ServiceAccount
+  name: cpu-agent
+  namespace: system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cpu-agent
+  namespace: system
+  labels:
+    app: cpu-agent
+spec:
+  selector:
+    matchLabels:
+      app: cpu-agent
+  template:
+    metadata:
+      labels:
+        app: cpu-agent
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/cpu-agent: unconfined
+    spec:
+      serviceAccountName: cpu-agent
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: cpu-agent
+        image: ghcr.io/hufs-ese-lab/cpu-metric:v1
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        ports:
+        - containerPort: 8888
+          name: api-port
+          protocol: TCP
+          hostPort: 8888
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        securityContext:
+          privileged: false
+          runAsUser: 0
+          readOnlyRootFilesystem: false
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: proc
+          mountPath: /proc
+          readOnly: true
+        - name: sys
+          mountPath: /sys
+          readOnly: true
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      restartPolicy: Always

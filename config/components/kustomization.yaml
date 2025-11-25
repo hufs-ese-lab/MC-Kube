@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+- ebpf-monitoring-agent.yaml
+- cpu-monitoring-agent.yaml
+- resource-controller.yaml

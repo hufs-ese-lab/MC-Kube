@@ -1135,7 +1135,7 @@ func (r *McKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 		return fmt.Errorf("pod has no assigned node")
 	}
 
-	
+	cpuPoolsMutex.RLock()
 	pool, exists := cpuPools[nodeName]
 	cpuPoolsMutex.RUnlock()
 
@@ -1206,7 +1206,8 @@ func (r *McKubeReconciler) findPreemptionVictims(pool *CPUPool, coreID int, pree
 	for _, pod := range pods {
 		victimRank := criticalityRank[pod.Criticality]
 
-		
+		// Preemption allowed if preemptor has higher priority (larger rank) than victim
+		if preemptorRank > victimRank {
 			victims = append(victims, pod)
 		}
 	}
@@ -1224,7 +1225,7 @@ func (r *McKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 		"criticality", victim.Criticality,
 		"core", currentCore)
 
-	
+	pod := &corev1.Pod{}
 	if err := r.Get(ctx, types.NamespacedName{
 		Name:      victim.Name,
 		Namespace: victim.Namespace,

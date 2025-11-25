@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-monitoring-agent
+  namespace: system
+  labels:
+    app: ebpf-monitoring-agent
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-monitoring-agent
+  template:
+    metadata:
+      labels:
+        app: ebpf-monitoring-agent
+    spec:
+      hostPID: true
+      hostNetwork: true
+      hostIPC: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+      - operator: Exists
+      serviceAccountName: ebpf-monitoring-agent
+      containers:
+      - name: ebpf-agent
+        image: ghcr.io/hufs-ese-lab/ebpf-monitoring-agent:v1
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - SYS_RESOURCE
+            - NET_ADMIN
+            - BPF
+            - PERFMON
+        env:
+        - name: BPF_OBJECT
+          value: "/app/hcbs_overrun.bpf.o"
+        - name: CONTROLLER_URL
+          value: "http://mc-kube-controller.mc-kube-system.svc.cluster.local:8090/overrun"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+          readOnly: false
+        - name: bpf
+          mountPath: /sys/fs/bpf
+          readOnly: false
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+          readOnly: false
+        - name: proc
+          mountPath: /proc
+          readOnly: true
+        - name: containerd-sock
+          mountPath: /run/containerd/containerd.sock
+          readOnly: true
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+      volumes:
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
+      - name: bpf
+        hostPath:
+          path: /sys/fs/bpf
+          type: DirectoryOrCreate
+      - name: debugfs
+        hostPath:
+          path: /sys/kernel/debug
+          type: Directory
+      - name: proc
+        hostPath:
+          path: /proc
+          type: Directory
+      - name: containerd-sock
+        hostPath:
+          path: /run/containerd/containerd.sock
+          type: Socket
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ebpf-monitoring-agent
+  namespace: system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ebpf-monitoring-agent
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ebpf-monitoring-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ebpf-monitoring-agent
+subjects:
+- kind: ServiceAccount
+  name: ebpf-monitoring-agent
+  namespace: system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: controller
+  namespace: system
+spec:
+  type: ClusterIP
+  selector:
+    control-plane: controller-manager
+  ports:
+  - name: overrun
+    port: 8090
+    targetPort: 8090
+    protocol: TCP

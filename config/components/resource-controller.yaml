@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: resource-controller
+  namespace: system
+  labels:
+    k8s-app: resource-controller
+spec:
+  selector:
+    matchLabels:
+      name: resource-controller
+  template:
+    metadata:
+      labels:
+        name: resource-controller
+    spec:
+      serviceAccountName: resource-controller
+      hostNetwork: true
+      containers:
+      - name: resource-controller
+        image: ghcr.io/hufs-ese-lab/resource-controller:v1
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: sys
+          mountPath: /sys
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+        - name: containerd-sock
+          mountPath: /run/containerd/containerd.sock
+        - name: crictl-bin
+          mountPath: /usr/local/bin/crictl
+          readOnly: true
+        resources:
+          limits:
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+      - name: containerd-sock
+        hostPath:
+          path: /run/containerd/containerd.sock
+      - name: crictl-bin
+        hostPath:
+          path: /usr/bin/crictl
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: resource-controller
+  namespace: system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: resource-controller
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: resource-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: resource-controller
+subjects:
+- kind: ServiceAccount
+  name: resource-controller
+  namespace: system

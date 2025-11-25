@@ -33,6 +33,9 @@ resources:
 # be able to communicate with the Webhook Server.
 #- ../network-policy
 
+components:
+- ../components
+
 # Uncomment the patches line if you enable Metrics, and/or are using webhooks and cert-manager
 patches:
 # [METRICS] The following patch will enable the metrics endpoint using HTTPS and the port :8443.
