@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	mcoperatorv1 "mc-kube/api/v1"
+	"mc-kube/internal/cpupool"
 )
 
 // +kubebuilder:webhook:path=/mutate-v1-pod,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
@@ -63,41 +64,89 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 		}
 	}
 
-	// Check if there's a matching McKube resource with RT settings
-	rtSettings, err := m.findRTSettingsForPod(ctx, pod)
+	// Find the matching McKube CR for this pod.
+	mckubeCR, err := m.findMcKubeForPod(ctx, pod)
 	if err != nil {
-		log.Log.Error(err, "Failed to find RT settings for pod")
-		return admission.Allowed("No RT settings found")
+		log.Log.Error(err, "Failed to find McKube CR for pod")
+		return admission.Allowed("No McKube CR found, skipping RT mutation")
 	}
-
-	log.Log.V(1).Info("RT settings found", "rtSettings", rtSettings)
-
-	if rtSettings == nil {
-		log.Log.V(1).Info("No RT settings configured")
+	if mckubeCR == nil || mckubeCR.Spec.RTSettings == nil {
+		log.Log.V(1).Info("No RT settings configured for pod")
 		return admission.Allowed("No RT settings configured")
 	}
 
-	// Add annotations to track RT configuration request
+	rtSettings := mckubeCR.Spec.RTSettings
+
+	// Add annotations to track RT configuration request.
 	if pod.Annotations == nil {
 		pod.Annotations = make(map[string]string)
 	}
-
-	// Check if RT configuration is already pending or configured
 	if pod.Annotations["mckube.io/rt-pending"] == "true" || pod.Annotations["mckube.io/rt-configured"] == "true" {
 		log.Log.V(1).Info("RT configuration already in progress or completed", "pod.name", pod.Name)
 		return admission.Allowed("RT configuration already handled")
 	}
 
+	// ── Core selection ──────────────────────────────────────────────────────
+	// When the user did not specify a core (omitempty), select one now using the
+	// same Worst-Fit + criticality-aware eviction-lookahead algorithm that the
+	// Controller uses at runtime.  The selection is persisted to the McKube CR
+	// (spec.rtSettings.core and spec.node) so that:
+	//   • the Validating Webhook can verify feasibility against a concrete core,
+	//   • the Controller Reconcile loop sees the core already filled in, and
+	//   • the async goroutine below forwards the correct core to node-actuator.
+	if rtSettings.Core == nil {
+		log.Log.V(0).Info("Core not specified, selecting via Worst-Fit", "pod", pod.Name)
+
+		nodeList := &corev1.NodeList{}
+		if err := m.client.List(ctx, nodeList); err != nil {
+			log.Log.Error(err, "Failed to list nodes; cannot select core")
+			// Do not block admission – Validating Webhook will deny if truly infeasible.
+		} else {
+			budget := float64(rtSettings.RuntimeHi) / float64(rtSettings.Period)
+			result := cpupool.SelectBestNodeAndCore(nodeList.Items, budget, mckubeCR.Spec.Criticality, nil)
+
+			if !result.Feasible {
+				log.Log.V(0).Info("No feasible core found during Mutating; Validating will reject",
+					"pod", pod.Name)
+			} else {
+				selectedCore := fmt.Sprintf("%d", result.SelectedCoreID)
+				log.Log.V(0).Info("Core selected",
+					"pod", pod.Name,
+					"node", result.SelectedNodeName,
+					"core", selectedCore,
+					"evictionNeeded", len(result.VictimPodNames) > 0,
+					"victims", result.VictimPodNames)
+
+				// 1. Bind pod to the selected node so the scheduler honours it.
+				pod.Spec.NodeName = result.SelectedNodeName
+
+				// 2. Persist the decision to the McKube CR (unless this is a dry-run).
+				isDryRun := req.DryRun != nil && *req.DryRun
+				if !isDryRun {
+					if err := m.patchMcKubeCore(ctx, mckubeCR, selectedCore, result.SelectedNodeName); err != nil {
+						log.Log.Error(err, "Failed to patch McKube CR with selected core",
+							"mckube", mckubeCR.Name)
+						// Non-fatal: Validating Webhook will still check feasibility.
+					} else {
+						// Keep local copy in sync so the goroutine uses the right core.
+						rtSettings.Core = &selectedCore
+					}
+				}
+			}
+		}
+	}
+	// ── End Core selection ──────────────────────────────────────────────────
+
 	pod.Annotations["mckube.io/rt-pending"] = "true"
 	pod.Annotations["mckube.io/rt-period"] = fmt.Sprintf("%d", rtSettings.Period)
 	pod.Annotations["mckube.io/rt-runtime-low"] = fmt.Sprintf("%d", rtSettings.RuntimeLow)
 	pod.Annotations["mckube.io/rt-runtime-hi"] = fmt.Sprintf("%d", rtSettings.RuntimeHi)
-	pod.Annotations["mckube.io/rt-current"] = "low" // Initially use runtime_low
+	pod.Annotations["mckube.io/rt-current"] = "low"
 	if rtSettings.Core != nil {
 		pod.Annotations["mckube.io/rt-core"] = *rtSettings.Core
 	}
 
-	// Schedule RT configuration asynchronously after pod is scheduled
+	// Schedule RT cgroup application asynchronously (needs container to be running).
 	go m.scheduleRTConfiguration(ctx, pod, rtSettings)
 
 	marshaledPod, err := json.Marshal(pod)
@@ -108,35 +157,44 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-func (m *PodMutator) findRTSettingsForPod(ctx context.Context, pod *corev1.Pod) (*mcoperatorv1.RTSettings, error) {
+// findMcKubeForPod returns the McKube CR matching the pod, or nil if none.
+func (m *PodMutator) findMcKubeForPod(ctx context.Context, pod *corev1.Pod) (*mcoperatorv1.McKube, error) {
 	if m.client == nil {
 		return nil, fmt.Errorf("client is nil")
 	}
-
 	if pod == nil {
 		return nil, fmt.Errorf("pod is nil")
 	}
 
-	log.Log.V(1).Info("Finding RT settings for pod", "pod.name", pod.Name, "pod.namespace", pod.Namespace)
+	log.Log.V(1).Info("Finding McKube CR for pod", "pod", pod.Name, "namespace", pod.Namespace)
 
 	mckubeList := &mcoperatorv1.McKubeList{}
 	if err := m.client.List(ctx, mckubeList, client.InNamespace(pod.Namespace)); err != nil {
-		log.Log.Error(err, "Failed to list McKube resources")
 		return nil, err
 	}
 
-	log.Log.V(1).Info("Found McKube resources", "count", len(mckubeList.Items))
-
-	for i, mckube := range mckubeList.Items {
-		log.Log.V(1).Info("Checking McKube resource", "index", i, "name", mckube.Name, "podName", mckube.Spec.PodName, "targetPod", pod.Name)
-		if mckube.Spec.PodName == pod.Name && mckube.Spec.RTSettings != nil {
-			log.Log.Info("Found matching RT settings", "mckube.name", mckube.Name)
-			return mckube.Spec.RTSettings, nil
+	for i := range mckubeList.Items {
+		mc := &mckubeList.Items[i]
+		if mc.Spec.PodName == pod.Name && mc.Spec.RTSettings != nil {
+			log.Log.V(1).Info("Found matching McKube CR", "mckube", mc.Name)
+			return mc, nil
 		}
 	}
 
-	log.Log.V(1).Info("No matching RT settings found for pod", "pod.name", pod.Name)
+	log.Log.V(1).Info("No matching McKube CR found for pod", "pod", pod.Name)
 	return nil, nil
+}
+
+// patchMcKubeCore writes the selected core and node back to the McKube CR spec.
+// This makes the core decision the single source of truth for the Controller and
+// the Validating Webhook.
+func (m *PodMutator) patchMcKubeCore(ctx context.Context, mc *mcoperatorv1.McKube, core, nodeName string) error {
+	patch := client.MergeFrom(mc.DeepCopy())
+	mc.Spec.RTSettings.Core = &core
+	if mc.Spec.Node == "" {
+		mc.Spec.Node = nodeName
+	}
+	return m.client.Patch(ctx, mc, patch)
 }
 
 func (m *PodMutator) scheduleRTConfiguration(ctx context.Context, pod *corev1.Pod, rtSettings *mcoperatorv1.RTSettings) {
@@ -268,7 +326,7 @@ func (m *PodMutator) applyRTSettingsViaDaemon(ctx context.Context, pod *corev1.P
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Post(daemonURL, "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		log.Log.Error(err, "Failed to call resource-controller", "url", daemonURL)
+		log.Log.Error(err, "Failed to call node-actuator", "url", daemonURL)
 		return false
 	}
 	defer resp.Body.Close()
@@ -278,7 +336,7 @@ func (m *PodMutator) applyRTSettingsViaDaemon(ctx context.Context, pod *corev1.P
 	bodyString := string(bodyBytes)
 
 	if resp.StatusCode != http.StatusOK {
-		log.Log.Error(fmt.Errorf("resource-controller returned non-200 status"),
+		log.Log.Error(fmt.Errorf("node-actuator returned non-200 status"),
 			"Resource-controller error", "status", resp.StatusCode, "url", daemonURL,
 			"response", bodyString, "request", string(jsonBody))
 		return false

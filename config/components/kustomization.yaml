@@ -4,4 +4,4 @@ kind: Component
 resources:
 - ebpf-monitoring-agent.yaml
 - cpu-monitoring-agent.yaml
-- resource-controller.yaml
+- node-actuator.yaml

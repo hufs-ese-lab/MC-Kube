@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: resource-controller
+  name: node-actuator
   namespace: system
   labels:
-    k8s-app: resource-controller
+    k8s-app: node-actuator
 spec:
   selector:
     matchLabels:
-      name: resource-controller
+      name: node-actuator
   template:
     metadata:
       labels:
-        name: resource-controller
+        name: node-actuator
     spec:
-      serviceAccountName: resource-controller
+      serviceAccountName: node-actuator
       hostNetwork: true
       containers:
-      - name: resource-controller
-        image: ghcr.io/hufs-ese-lab/resource-controller:v1
+      - name: node-actuator
+        image: ghcr.io/hufs-ese-lab/node-actuator:v1
         imagePullPolicy: Always
         securityContext:
           privileged: true
@@ -61,13 +61,13 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: resource-controller
+  name: node-actuator
   namespace: system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: resource-controller
+  name: node-actuator
 rules:
 - apiGroups: [""]
   resources: ["pods"]
@@ -79,12 +79,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: resource-controller
+  name: node-actuator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: resource-controller
+  name: node-actuator
 subjects:
 - kind: ServiceAccount
-  name: resource-controller
+  name: node-actuator
   namespace: system

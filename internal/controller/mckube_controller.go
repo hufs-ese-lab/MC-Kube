@@ -27,6 +27,7 @@ import (
 
 	mcoperatorv1 "mc-kube/api/v1"
 	"mc-kube/internal/ipvs"
+	"mc-kube/internal/cpupool"
 )
 
 // Type aliases for ipvs package types
@@ -120,32 +121,12 @@ type OverrunData struct {
 }
 
 // ===================== Data structures for CPU Pool management =====================
-// CPUCoreInfo: Information about each CPU core usage
-type CPUCoreInfo struct {
-	CoreID      int                // CPU core number
-	UsageMillis int64              // Currently allocated CPU usage (millicores)
-	Pods        map[string]PodInfo // Pod information assigned to this core (podName -> PodInfo)
-}
+// CPUPool types are defined in internal/cpupool and shared with the Webhooks.
+// Type aliases keep existing Controller code compiling without name changes.
+type CPUCoreInfo = cpupool.CPUCoreInfo
+type PodInfo = cpupool.PodInfo
+type CPUPool = cpupool.CPUPool
 
-// PodInfo: Pod allocation information
-type PodInfo struct {
-	Name        string
-	Namespace   string
-	Criticality string // "Low", "Middle", "High"
-	CPUMillis   int64  // Allocated CPU amount (millicores, based on runtime/period from RT settings)
-	CoreSet     []int  // Assigned core numbers
-}
-
-// CPUPool: Per-node CPU core pool management
-type CPUPool struct {
-	NodeName string
-	Cores    map[int]*CPUCoreInfo // coreID -> CPUCoreInfo
-	mu       sync.RWMutex
-}
-
-// CPU Pool storage (nodeName -> CPUPool)
-var cpuPools = make(map[string]*CPUPool)
-var cpuPoolsMutex sync.RWMutex
 
 // Track last CPU state per node (nodeName -> isCpuBusy)
 var lastCpuBusyState = make(map[string]bool)
@@ -273,7 +254,7 @@ func (r *McKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 						}
 					}
 					
-					targetCores := parseCoreSet(actualCoreStr)
+					targetCores := cpupool.ParseCoreSet(actualCoreStr)
 
 					// Calculate CPU usage based on RT settings
 					runtimeStateMutex.RLock()
@@ -298,9 +279,9 @@ func (r *McKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 					criticality := rt.Spec.Criticality
 
 					// Check if already registered in CPU Pool with the same configuration
-					pool := getOrCreateCPUPool(pod.Spec.NodeName, 16)
+					pool := cpupool.GetOrCreateCPUPool(pod.Spec.NodeName, cpupool.DefaultNumCores)
 					alreadyRegistered := true
-					pool.mu.RLock()
+					pool.Mu.RLock()
 					for _, coreID := range targetCores {
 						if core, exists := pool.Cores[coreID]; exists {
 							if existingPod, podExists := core.Pods[pod.Name]; !podExists ||
@@ -314,7 +295,7 @@ func (r *McKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 							break
 						}
 					}
-					pool.mu.RUnlock()
+					pool.Mu.RUnlock()
 
 					// Perform preemption check and update only if not already registered
 					if !alreadyRegistered {
@@ -675,25 +656,9 @@ func (r *McKubeReconciler) cleanupPodState(podName, namespace string) {
 	}
 	runtimeStateMutex.Unlock()
 
-	// 2. Remove the Pod from CPU Pool
-	cpuPoolsMutex.Lock()
-	for nodeName, pool := range cpuPools {
-		pool.mu.Lock()
-		for coreID, core := range pool.Cores {
-			if _, exists := core.Pods[podName]; exists {
-				// Find Pod info and deduct CPU usage
-				podInfo := core.Pods[podName]
-				core.UsageMillis -= podInfo.CPUMillis
-				delete(core.Pods, podName)
-				logger.V(0).Info("Removed pod from CPU pool",
-					"node", nodeName,
-					"core", coreID,
-					"releasedMillis", podInfo.CPUMillis)
-			}
-		}
-		pool.mu.Unlock()
-	}
-	cpuPoolsMutex.Unlock()
+	// 2. Remove the Pod from the shared in-memory CPU Pool.
+	cpupool.RemovePodFromPool(podName)
+	logger.V(0).Info("Removed pod from shared CPU pool")
 
 	logger.V(0).Info("Pod state cleanup completed")
 }
@@ -728,25 +693,9 @@ func (r *McKubeReconciler) cleanupPodStateByMcKubeName(ctx context.Context, mcKu
 	}
 	runtimeStateMutex.Unlock()
 
-	// Clean up CPU Pool
-	cpuPoolsMutex.Lock()
-	for nodeName, pool := range cpuPools {
-		pool.mu.Lock()
-		for coreID, core := range pool.Cores {
-			for podName, podInfo := range core.Pods {
-				if !existingPods[podName] {
-					core.UsageMillis -= podInfo.CPUMillis
-					delete(core.Pods, podName)
-					logger.V(0).Info("Cleaned up CPU pool for non-existent pod",
-						"pod", podName,
-						"node", nodeName,
-						"core", coreID)
-				}
-			}
-		}
-		pool.mu.Unlock()
-	}
-	cpuPoolsMutex.Unlock()
+	// Clean up shared in-memory CPU Pool.
+	cpupool.RemovePodsNotIn(existingPods)
+	logger.V(0).Info("Cleaned up shared CPU pool for non-existent pods")
 
 	logger.V(0).Info("McKube deletion cleanup completed")
 }
@@ -1015,111 +964,10 @@ func (r *McKubeReconciler) SendRTRequest(nodeIP string, req CgroupRequest) error
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("resource-controller request failed with status: %d, body: %s", resp.StatusCode, string(bodyBytes))
+		return fmt.Errorf("node-actuator request failed with status: %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	return nil
-}
-
-// ===================== CPU Pool Management =====================
-
-// getOrCreateCPUPool: Get or create CPU Pool for a node
-func getOrCreateCPUPool(nodeName string, numCores int) *CPUPool {
-	cpuPoolsMutex.Lock()
-	defer cpuPoolsMutex.Unlock()
-
-	if pool, exists := cpuPools[nodeName]; exists {
-		return pool
-	}
-
-	pool := &CPUPool{
-		NodeName: nodeName,
-		Cores:    make(map[int]*CPUCoreInfo),
-	}
-
-	for i := 0; i < numCores; i++ {
-		pool.Cores[i] = &CPUCoreInfo{
-			CoreID:      i,
-			UsageMillis: 0,
-			Pods:        make(map[string]PodInfo),
-		}
-	}
-
-	cpuPools[nodeName] = pool
-	return pool
-}
-
-// getCoreUtilization: Calculate utilization of a specific core (0.0 ~ 1.0)
-func (p *CPUPool) getCoreUtilization(coreID int) float64 {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	core, exists := p.Cores[coreID]
-	if !exists {
-		return 0.0
-	}
-
-	// 1000 millis = 1 core = 100%
-	return float64(core.UsageMillis) / 1000.0
-}
-
-// addPodToCore: Add Pod allocation info to core
-func (p *CPUPool) addPodToCore(coreID int, pod PodInfo) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if core, exists := p.Cores[coreID]; exists {
-		core.Pods[pod.Name] = pod
-		core.UsageMillis += pod.CPUMillis
-	}
-}
-
-// removePodFromCore: Remove Pod allocation info from core
-func (p *CPUPool) removePodFromCore(coreID int, podName string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if core, exists := p.Cores[coreID]; exists {
-		if pod, found := core.Pods[podName]; found {
-			core.UsageMillis -= pod.CPUMillis
-			delete(core.Pods, podName)
-		}
-	}
-}
-
-// getPodsOnCore: Return list of Pods assigned to a specific core
-func (p *CPUPool) getPodsOnCore(coreID int) []PodInfo {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	core, exists := p.Cores[coreID]
-	if !exists {
-		return nil
-	}
-
-	pods := make([]PodInfo, 0, len(core.Pods))
-	for _, pod := range core.Pods {
-		pods = append(pods, pod)
-	}
-	return pods
-}
-
-// findLeastLoadedCore: Find core with lowest utilization
-func (p *CPUPool) findLeastLoadedCore() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	minCore := -1
-	minUsage := int64(1<<63 - 1)
-
-	for coreID, core := range p.Cores {
-		if core.UsageMillis < minUsage {
-			minUsage = core.UsageMillis
-			minCore = coreID
-		}
-	}
-
-	return minCore
 }
 
 // ===================== Preemption Logic =====================
@@ -1135,9 +983,8 @@ func (r *McKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 		return fmt.Errorf("pod has no assigned node")
 	}
 
-	cpuPoolsMutex.RLock()
-	pool, exists := cpuPools[nodeName]
-	cpuPoolsMutex.RUnlock()
+	pool := cpupool.GetPoolForNode(nodeName)
+	exists := pool != nil
 
 	if !exists {
 		logger.V(1).Info("No CPU pool for node, skipping preemption check", "node", nodeName)
@@ -1147,7 +994,7 @@ func (r *McKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 	
 	for _, coreID := range targetCores {
 		
-		currentUsage := pool.getCoreUtilization(coreID)
+		currentUsage := pool.GetCoreUtilization(coreID)
 		afterUsage := currentUsage + float64(cpuMillis)/1000.0
 
 		logger.V(0).Info("Core utilization check",
@@ -1158,35 +1005,46 @@ func (r *McKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 
 		
 		if afterUsage > coreUtilizationThreshold {
+			// Calculate the exact budget that must be freed to get below the threshold.
+			needed := afterUsage - coreUtilizationThreshold
+
 			logger.V(0).Info("Core utilization will exceed threshold, attempting preemption",
 				"core", coreID,
 				"pod", pod.Name,
-				"criticality", criticality)
+				"criticality", criticality,
+				"neededBudget", fmt.Sprintf("%.3f", needed))
 
-			victims := r.findPreemptionVictims(pool, coreID, criticality)
-			if len(victims) > 0 {
-				logger.V(0).Info("Found preemption victims",
-					"core", coreID,
-					"victimCount", len(victims))
-
-				for _, victim := range victims {
-					if err := r.preemptPod(ctx, victim, pool, coreID); err != nil {
-						logger.Error(err, "Failed to preempt victim pod",
-							"victim", victim.Name,
-							"core", coreID)
-					} else {
-						logger.V(0).Info("Successfully preempted victim pod",
-							"victim", victim.Name,
-							"victimCriticality", victim.Criticality,
-							"preemptor", pod.Name,
-							"preemptorCriticality", criticality,
-							"core", coreID)
-					}
-				}
-			} else {
+			// Collect all lower-criticality pods on this core as candidates.
+			candidates := r.findPreemptionVictims(pool, coreID, criticality)
+			if len(candidates) == 0 {
 				logger.V(0).Info("No preemptable victims found on core",
 					"core", coreID,
 					"criticality", criticality)
+				continue
+			}
+
+			// Select only the minimum set of victims required to cover needed budget.
+			// Order: lowest criticality first, then largest budget first (greedy).
+			victims := cpupool.SelectMinimumVictims(candidates, needed)
+
+			logger.V(0).Info("Selected minimum preemption victims",
+				"core", coreID,
+				"candidateCount", len(candidates),
+				"selectedCount", len(victims))
+
+			for _, victim := range victims {
+				if err := r.preemptPod(ctx, victim, pool, coreID); err != nil {
+					logger.Error(err, "Failed to preempt victim pod",
+						"victim", victim.Name,
+						"core", coreID)
+				} else {
+					logger.V(0).Info("Successfully preempted victim pod",
+						"victim", victim.Name,
+						"victimCriticality", victim.Criticality,
+						"preemptor", pod.Name,
+						"preemptorCriticality", criticality,
+						"core", coreID)
+				}
 			}
 		}
 	}
@@ -1198,7 +1056,7 @@ func (r *McKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 // High can preempt Middle, Low
 // Middle can preempt Low
 func (r *McKubeReconciler) findPreemptionVictims(pool *CPUPool, coreID int, preemptorCriticality string) []PodInfo {
-	pods := pool.getPodsOnCore(coreID)
+	pods := pool.GetPodsOnCore(coreID)
 	victims := make([]PodInfo, 0)
 
 	preemptorRank := criticalityRank[preemptorCriticality]
@@ -1234,11 +1092,11 @@ func (r *McKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 	}
 
 	
-	pool.removePodFromCore(currentCore, victim.Name)
+	pool.RemovePodFromCore(currentCore, victim.Name)
 
 	
-	newCore := pool.findLeastLoadedCore()
-	newCoreUsage := pool.getCoreUtilization(newCore)
+	newCore := pool.FindLeastLoadedCore()
+	newCoreUsage := pool.GetCoreUtilization(newCore)
 
 	logger.V(0).Info("Attempting to migrate pod to different core",
 		"pod", victim.Name,
@@ -1248,7 +1106,7 @@ func (r *McKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 
 	
 	if newCoreUsage+float64(victim.CPUMillis)/1000.0 <= coreUtilizationThreshold {
-		pool.addPodToCore(newCore, victim)
+		pool.AddPodToCore(newCore, victim)
 
 		
 		if err := r.updatePodCoreAffinity(ctx, pod, newCore); err != nil {
@@ -1338,41 +1196,7 @@ func (r *McKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev
 }
 
 // ===================== Helper Functions =====================
-
-// parseCoreSet: Parse core range string to core number array
-// Example: "2-3" -> [2, 3], "1" -> [1], "0,2,4" -> [0, 2, 4]
-func parseCoreSet(coreStr string) []int {
-	cores := make([]int, 0)
-
-	
-	parts := strings.Split(coreStr, ",")
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-
-		
-		if strings.Contains(part, "-") {
-			rangeParts := strings.Split(part, "-")
-			if len(rangeParts) == 2 {
-				start := 0
-				end := 0
-				fmt.Sscanf(rangeParts[0], "%d", &start)
-				fmt.Sscanf(rangeParts[1], "%d", &end)
-
-				for i := start; i <= end; i++ {
-					cores = append(cores, i)
-				}
-			}
-		} else {
-			
-			coreID := 0
-			if _, err := fmt.Sscanf(part, "%d", &coreID); err == nil {
-				cores = append(cores, coreID)
-			}
-		}
-	}
-
-	return cores
-}
+// ParseCoreSet is provided by mc-kube/internal/cpupool package.
 
 
 func (r *McKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.Pod, mckube *mcoperatorv1.McKube) error {
@@ -1386,7 +1210,7 @@ func (r *McKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 	}
 
 	
-	pool := getOrCreateCPUPool(nodeName, 16)
+	pool := cpupool.GetOrCreateCPUPool(nodeName, cpupool.DefaultNumCores)
 
 	
 	
@@ -1420,21 +1244,21 @@ func (r *McKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 		Namespace:   pod.Namespace,
 		Criticality: mckube.Spec.Criticality,
 		CPUMillis:   cpuMillis,
-		CoreSet:     parseCoreSet(*mckube.Spec.RTSettings.Core),
+		CoreSet:     cpupool.ParseCoreSet(*mckube.Spec.RTSettings.Core),
 	}
 
 	
 	needsUpdate := false
 	for _, coreID := range podInfo.CoreSet {
 		
-		pool.mu.RLock()
+		pool.Mu.RLock()
 		core, exists := pool.Cores[coreID]
 		var existingPod PodInfo
 		var podExists bool
 		if exists {
 			existingPod, podExists = core.Pods[pod.Name]
 		}
-		pool.mu.RUnlock()
+		pool.Mu.RUnlock()
 
 		
 		if !exists || !podExists ||
@@ -1449,8 +1273,8 @@ func (r *McKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 	if needsUpdate {
 		for _, coreID := range podInfo.CoreSet {
 			
-			pool.removePodFromCore(coreID, pod.Name)
-			pool.addPodToCore(coreID, podInfo)
+			pool.RemovePodFromCore(coreID, pod.Name)
+			pool.AddPodToCore(coreID, podInfo)
 		}
 
 		log.Log.V(0).Info("Updated CPU pool for pod",

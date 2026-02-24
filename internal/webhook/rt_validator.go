@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	mcoperatorv1 "mc-kube/api/v1"
+	"mc-kube/internal/cpupool"
 )
 
 // +kubebuilder:webhook:path=/validate-rt-pod,mutating=false,failurePolicy=fail,sideEffects=NoneOnDryRun,groups="",resources=pods,verbs=create,versions=v1,name=vrtpod.kb.io,admissionReviewVersions=v1
@@ -22,90 +23,133 @@ type RTValidator struct {
 
 func (v *RTValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	pod := &corev1.Pod{}
-
-	err := json.Unmarshal(req.Object.Raw, pod)
-	if err != nil {
+	if err := json.Unmarshal(req.Object.Raw, pod); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
-	// Check if there's a matching McKube resource with RT settings
-	rtSettings, _, err := v.findRTSettingsForPod(ctx, pod)
+	// Find the matching McKube CR.
+	mckubeCR, err := v.findMcKubeForPod(ctx, pod)
 	if err != nil {
-		log.Log.Error(err, "Failed to find RT settings for pod")
-		return admission.Allowed("No RT settings found, allowing pod creation")
+		log.Log.Error(err, "Failed to find McKube CR for pod")
+		return admission.Allowed("No McKube CR found, allowing pod creation")
 	}
-
-	if rtSettings == nil {
+	if mckubeCR == nil || mckubeCR.Spec.RTSettings == nil {
 		return admission.Allowed("No RT settings configured, allowing pod creation")
 	}
 
-	// Validate RT settings
+	rtSettings := mckubeCR.Spec.RTSettings
+
+	// ── Phase 1: mathematical parameter validation (unchanged) ───────────────
 	if err := v.validateRTSettings(rtSettings); err != nil {
 		return admission.Denied(fmt.Sprintf("Invalid RT settings: %v", err))
 	}
 
-	return admission.Allowed("RT settings are valid, pod creation allowed")
+	// ── Phase 2: RT CPU budget feasibility check ──────────────────────────────
+	// Fetch the node list so SelectBestNodeAndCore knows CPU core counts.
+	nodeList := &corev1.NodeList{}
+	if err := v.Client.List(ctx, nodeList); err != nil {
+		log.Log.Error(err, "Failed to list nodes; skipping feasibility check")
+		return admission.Allowed("RT settings are valid (feasibility check skipped due to error)")
+	}
+
+	requiredBudget := float64(rtSettings.RuntimeHi) / float64(rtSettings.Period)
+	criticality := mckubeCR.Spec.Criticality
+
+	// Determine the core that Mutating Webhook selected (if any).
+	// Priority: Status.AllocatedCore > Spec.RTSettings.Core (already patched by Mutating).
+	selectedCoreStr := ""
+	if mckubeCR.Status.AllocatedCore != "" {
+		selectedCoreStr = mckubeCR.Status.AllocatedCore
+	} else if rtSettings.Core != nil {
+		selectedCoreStr = *rtSettings.Core
+	}
+	selectedNode := mckubeCR.Spec.Node // may be empty if pod not yet bound
+
+	if selectedCoreStr != "" && selectedNode != "" {
+		// ── Case A: Mutating Webhook has already fixed the node+core.
+		// Validate feasibility against that specific (node, core) pair.
+		coreIDs := cpupool.ParseCoreSet(selectedCoreStr)
+		if len(coreIDs) == 0 {
+			return admission.Denied(fmt.Sprintf("Invalid core specification: %q", selectedCoreStr))
+		}
+
+		feasible, victims := cpupool.CheckNodeCoreFeasibility(selectedNode, coreIDs[0], requiredBudget, criticality)
+		if !feasible {
+			return admission.Denied(fmt.Sprintf(
+				"Insufficient RT CPU budget on node %q core %d for pod %q (criticality=%s, requiredBudget=%.3f)",
+				selectedNode, coreIDs[0], pod.Name, criticality, requiredBudget))
+		}
+
+		if len(victims) > 0 {
+			log.Log.V(0).Info("Pod admitted; lower-criticality pods will be evicted by Controller",
+				"pod", pod.Name, "node", selectedNode, "core", coreIDs[0], "victims", victims)
+		}
+		return admission.Allowed("RT settings valid and node/core feasibility confirmed")
+	}
+
+	// ── Case B: Core not yet determined (Mutating failed or core still unset).
+	// Run the full Worst-Fit + eviction-lookahead search over all nodes.
+	log.Log.V(0).Info("Core not fixed by Mutating Webhook; running full feasibility search",
+		"pod", pod.Name)
+
+	result := cpupool.SelectBestNodeAndCore(nodeList.Items, requiredBudget, criticality, nil)
+	if !result.Feasible {
+		return admission.Denied(fmt.Sprintf(
+			"No node in the cluster has sufficient RT CPU budget for pod %q (criticality=%s, requiredBudget=%.3f)",
+			pod.Name, criticality, requiredBudget))
+	}
+
+	log.Log.V(0).Info("Pod admitted via full-cluster feasibility search",
+		"pod", pod.Name,
+		"suggestedNode", result.SelectedNodeName,
+		"suggestedCore", result.SelectedCoreID,
+		"victims", result.VictimPodNames)
+
+	return admission.Allowed("RT settings valid and cluster-wide feasibility confirmed")
 }
 
-func (v *RTValidator) findRTSettingsForPod(ctx context.Context, pod *corev1.Pod) (*mcoperatorv1.RTSettings, *mcoperatorv1.McKube, error) {
+// findMcKubeForPod returns the McKube CR matching the pod, or nil if none.
+func (v *RTValidator) findMcKubeForPod(ctx context.Context, pod *corev1.Pod) (*mcoperatorv1.McKube, error) {
 	mckubeList := &mcoperatorv1.McKubeList{}
 	if err := v.Client.List(ctx, mckubeList, client.InNamespace(pod.Namespace)); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	for _, mckube := range mckubeList.Items {
-		if mckube.Spec.PodName == pod.Name && mckube.Spec.RTSettings != nil {
-			return mckube.Spec.RTSettings, &mckube, nil
+	for i := range mckubeList.Items {
+		mc := &mckubeList.Items[i]
+		if mc.Spec.PodName == pod.Name && mc.Spec.RTSettings != nil {
+			return mc, nil
 		}
 	}
-
-	return nil, nil, nil
+	return nil, nil
 }
 
-// validateRTSettings validates RT configuration parameters
+// validateRTSettings validates RT configuration parameters (mathematical checks).
 func (v *RTValidator) validateRTSettings(rtSettings *mcoperatorv1.RTSettings) error {
-	// Validate RT period (must be > 0)
 	if rtSettings.Period <= 0 {
 		return fmt.Errorf("RT period must be positive, got: %d", rtSettings.Period)
 	}
-
-	// Validate RT runtime_low (must be > 0 and <= period)
 	if rtSettings.RuntimeLow <= 0 {
 		return fmt.Errorf("RT runtime_low must be positive, got: %d", rtSettings.RuntimeLow)
 	}
-
 	if rtSettings.RuntimeLow > rtSettings.Period {
 		return fmt.Errorf("RT runtime_low (%d) cannot be greater than period (%d)", rtSettings.RuntimeLow, rtSettings.Period)
 	}
-
-	// Validate RT runtime_hi (must be > 0 and <= period)
 	if rtSettings.RuntimeHi <= 0 {
 		return fmt.Errorf("RT runtime_hi must be positive, got: %d", rtSettings.RuntimeHi)
 	}
-
 	if rtSettings.RuntimeHi > rtSettings.Period {
 		return fmt.Errorf("RT runtime_hi (%d) cannot be greater than period (%d)", rtSettings.RuntimeHi, rtSettings.Period)
 	}
-
-	// Validate that runtime_low <= runtime_hi
 	if rtSettings.RuntimeLow > rtSettings.RuntimeHi {
 		return fmt.Errorf("RT runtime_low (%d) cannot be greater than runtime_hi (%d)", rtSettings.RuntimeLow, rtSettings.RuntimeHi)
 	}
-
-	// Validate RT runtime_hi ratio (should not exceed 95% of period for safety)
-	maxRuntime := int(float64(rtSettings.Period) * 0.95)
+	maxRuntime := int(float64(rtSettings.Period) * cpupool.RTCapacityPerCore)
 	if rtSettings.RuntimeHi > maxRuntime {
-		return fmt.Errorf("RT runtime_hi (%d) exceeds 95%% of period (%d), max allowed: %d", rtSettings.RuntimeHi, rtSettings.Period, maxRuntime)
+		return fmt.Errorf("RT runtime_hi (%d) exceeds %.0f%% of period (%d), max allowed: %d",
+			rtSettings.RuntimeHi, cpupool.RTCapacityPerCore*100, rtSettings.Period, maxRuntime)
 	}
-
-	// Core setting is optional, but if provided, should be valid format
-	if rtSettings.Core != nil && *rtSettings.Core != "" {
-		// Basic validation for core format (e.g., "0-3", "1,3", "0")
-		// This is a simple check, more sophisticated validation could be added
-		if len(*rtSettings.Core) == 0 {
-			return fmt.Errorf("RT core setting cannot be empty string")
-		}
+	if rtSettings.Core != nil && len(*rtSettings.Core) == 0 {
+		return fmt.Errorf("RT core setting cannot be empty string")
 	}
-
 	return nil
 }

@@ -10,7 +10,6 @@ spec:
     period: 1000000        # 1 second in microseconds
     runtime_low: 300000    # 300ms initial runtime (conservative)
     runtime_hi: 500000     # 500ms elevated runtime (after overrun detection)
-    core: "2"            # Use cores 2
 ---
 apiVersion: v1
 kind: Pod
