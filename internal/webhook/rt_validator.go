@@ -39,12 +39,12 @@ func (v *RTValidator) Handle(ctx context.Context, req admission.Request) admissi
 
 	rtSettings := mckubeCR.Spec.RTSettings
 
-	// â”€â”€ Phase 1: mathematical parameter validation (unchanged) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+	// ?€?€ Phase 1: mathematical parameter validation (unchanged) ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
 	if err := v.validateRTSettings(rtSettings); err != nil {
 		return admission.Denied(fmt.Sprintf("Invalid RT settings: %v", err))
 	}
 
-	// â”€â”€ Phase 2: RT CPU budget feasibility check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+	// ?€?€ Phase 2: RT CPU budget feasibility check ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
 	// Fetch the node list so SelectBestNodeAndCore knows CPU core counts.
 	nodeList := &corev1.NodeList{}
 	if err := v.Client.List(ctx, nodeList); err != nil {
@@ -66,7 +66,7 @@ func (v *RTValidator) Handle(ctx context.Context, req admission.Request) admissi
 	selectedNode := mckubeCR.Spec.Node // may be empty if pod not yet bound
 
 	if selectedCoreStr != "" && selectedNode != "" {
-		// â”€â”€ Case A: Mutating Webhook has already fixed the node+core.
+		// ?€?€ Case A: Mutating Webhook has already fixed the node+core.
 		// Validate feasibility against that specific (node, core) pair.
 		coreIDs := cpupool.ParseCoreSet(selectedCoreStr)
 		if len(coreIDs) == 0 {
@@ -87,7 +87,7 @@ func (v *RTValidator) Handle(ctx context.Context, req admission.Request) admissi
 		return admission.Allowed("RT settings valid and node/core feasibility confirmed")
 	}
 
-	// â”€â”€ Case B: Core not yet determined (Mutating failed or core still unset).
+	// ?€?€ Case B: Core not yet determined (Mutating failed or core still unset).
 	// Run the full Worst-Fit + eviction-lookahead search over all nodes.
 	log.Log.V(0).Info("Core not fixed by Mutating Webhook; running full feasibility search",
 		"pod", pod.Name)
@@ -109,8 +109,8 @@ func (v *RTValidator) Handle(ctx context.Context, req admission.Request) admissi
 }
 
 // findMcKubeForPod returns the McKube CR matching the pod, or nil if none.
-func (v *RTValidator) findMcKubeForPod(ctx context.Context, pod *corev1.Pod) (*mcoperatorv1.McKube, error) {
-	mckubeList := &mcoperatorv1.McKubeList{}
+func (v *RTValidator) findMcKubeForPod(ctx context.Context, pod *corev1.Pod) (*mcoperatorv1.MCKube, error) {
+	mckubeList := &mcoperatorv1.MCKubeList{}
 	if err := v.Client.List(ctx, mckubeList, client.InNamespace(pod.Namespace)); err != nil {
 		return nil, err
 	}

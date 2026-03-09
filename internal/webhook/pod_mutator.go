@@ -86,21 +86,21 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 		return admission.Allowed("RT configuration already handled")
 	}
 
-	// â”€â”€ Core selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+	// ?€?€ Core selection ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
 	// When the user did not specify a core (omitempty), select one now using the
 	// same Worst-Fit + criticality-aware eviction-lookahead algorithm that the
 	// Controller uses at runtime.  The selection is persisted to the McKube CR
 	// (spec.rtSettings.core and spec.node) so that:
-	//   â€¢ the Validating Webhook can verify feasibility against a concrete core,
-	//   â€¢ the Controller Reconcile loop sees the core already filled in, and
-	//   â€¢ the async goroutine below forwards the correct core to node-actuator.
+	//   ??the Validating Webhook can verify feasibility against a concrete core,
+	//   ??the Controller Reconcile loop sees the core already filled in, and
+	//   ??the async goroutine below forwards the correct core to node-actuator.
 	if rtSettings.Core == nil {
 		log.Log.V(0).Info("Core not specified, selecting via Worst-Fit", "pod", pod.Name)
 
 		nodeList := &corev1.NodeList{}
 		if err := m.client.List(ctx, nodeList); err != nil {
 			log.Log.Error(err, "Failed to list nodes; cannot select core")
-			// Do not block admission â€“ Validating Webhook will deny if truly infeasible.
+			// Do not block admission ??Validating Webhook will deny if truly infeasible.
 		} else {
 			budget := float64(rtSettings.RuntimeHi) / float64(rtSettings.Period)
 			result := cpupool.SelectBestNodeAndCore(nodeList.Items, budget, mckubeCR.Spec.Criticality, nil)
@@ -135,7 +135,7 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 			}
 		}
 	}
-	// â”€â”€ End Core selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+	// ?€?€ End Core selection ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
 
 	pod.Annotations["mckube.io/rt-pending"] = "true"
 	pod.Annotations["mckube.io/rt-period"] = fmt.Sprintf("%d", rtSettings.Period)
@@ -158,7 +158,7 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 }
 
 // findMcKubeForPod returns the McKube CR matching the pod, or nil if none.
-func (m *PodMutator) findMcKubeForPod(ctx context.Context, pod *corev1.Pod) (*mcoperatorv1.McKube, error) {
+func (m *PodMutator) findMcKubeForPod(ctx context.Context, pod *corev1.Pod) (*mcoperatorv1.MCKube, error) {
 	if m.client == nil {
 		return nil, fmt.Errorf("client is nil")
 	}
@@ -168,7 +168,7 @@ func (m *PodMutator) findMcKubeForPod(ctx context.Context, pod *corev1.Pod) (*mc
 
 	log.Log.V(1).Info("Finding McKube CR for pod", "pod", pod.Name, "namespace", pod.Namespace)
 
-	mckubeList := &mcoperatorv1.McKubeList{}
+	mckubeList := &mcoperatorv1.MCKubeList{}
 	if err := m.client.List(ctx, mckubeList, client.InNamespace(pod.Namespace)); err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (m *PodMutator) findMcKubeForPod(ctx context.Context, pod *corev1.Pod) (*mc
 // patchMcKubeCore writes the selected core and node back to the McKube CR spec.
 // This makes the core decision the single source of truth for the Controller and
 // the Validating Webhook.
-func (m *PodMutator) patchMcKubeCore(ctx context.Context, mc *mcoperatorv1.McKube, core, nodeName string) error {
+func (m *PodMutator) patchMcKubeCore(ctx context.Context, mc *mcoperatorv1.MCKube, core, nodeName string) error {
 	patch := client.MergeFrom(mc.DeepCopy())
 	mc.Spec.RTSettings.Core = &core
 	if mc.Spec.Node == "" {

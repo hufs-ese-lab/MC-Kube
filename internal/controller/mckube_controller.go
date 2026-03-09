@@ -1,4 +1,4 @@
-﻿package controller
+package controller
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ import (
 type RealTimeData = ipvs.RealTimeData
 type RealTimeWCET = ipvs.RealTimeWCET
 
-type McKubeReconciler struct {
+type MCKubeReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
 	DynamicClient  dynamic.Interface
@@ -136,7 +136,7 @@ const coreUtilizationThreshold = 0.9 // 90% threshold
 
 // ===================== Reconcile =====================
 
-func (r *McKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *MCKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	defer duration(track("Reconcile"))
@@ -147,7 +147,7 @@ func (r *McKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	loggerHighPrio := logger.V(0)
 	loggerLowPrio.Info("Mc-Kube/rt Reconcile method started")
 
-	rt := &mcoperatorv1.McKube{}
+	rt := &mcoperatorv1.MCKube{}
 
 	loggerLowPrio.Info("Fetching McKube resource")
 	if err := r.Get(ctx, req.NamespacedName, rt); err != nil {
@@ -375,7 +375,7 @@ func (r *McKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // All existing IPVS-related logic has been migrated to the ipvs package
 
 // handleCPURecovery: Reverts all RT pods to runtime_low when CPU normalizes (isCpuBusy=false)
-func (r *McKubeReconciler) handleCPURecovery(ctx context.Context, nodeName string) {
+func (r *MCKubeReconciler) handleCPURecovery(ctx context.Context, nodeName string) {
 	logger := log.Log.WithValues("McKube/rt.CPURecovery", "Recovery", "node", nodeName)
 	logger.V(0).Info("CPU recovered (isCpuBusy=false), reverting pods to runtime_low")
 
@@ -418,13 +418,13 @@ func (r *McKubeReconciler) handleCPURecovery(ctx context.Context, nodeName strin
 		}
 
 		// Query McKube CR
-		mckubeList := &mcoperatorv1.McKubeList{}
+		mckubeList := &mcoperatorv1.MCKubeList{}
 		if err := r.List(ctx, mckubeList, client.InNamespace(pod.Namespace)); err != nil {
 			logger.Error(err, "Failed to list McKube resources", "pod", pod.Name)
 			continue
 		}
 
-		var targetMcKube *mcoperatorv1.McKube
+		var targetMcKube *mcoperatorv1.MCKube
 		for i := range mckubeList.Items {
 			if mckubeList.Items[i].Spec.PodName == pod.Name {
 				targetMcKube = &mckubeList.Items[i]
@@ -530,7 +530,7 @@ func duration(msg string, start time.Time) {
 // ===================== Setup =====================
 
 // StartTaintThread: Thread function for monitoring and releasing node taints
-func (r *McKubeReconciler) StartTaintThread() {
+func (r *MCKubeReconciler) StartTaintThread() {
 	go func() {
 		logger := log.Log.WithValues("McKube/rt.TaintMonitoringThread", "Taint")
 		logger.V(1).Info("Starting taint monitoring thread")
@@ -572,7 +572,7 @@ func (r *McKubeReconciler) StartTaintThread() {
 }
 
 // SetupWithManager: Registers the Reconciler with the manager
-func (r *McKubeReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *MCKubeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Initialize DataCollector
 	r.DataCollector = ipvs.NewDataCollector(r.Client, r.DynamicClient)
 
@@ -593,7 +593,7 @@ func (r *McKubeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.StartOverrunListener(8090) // Declare Overrun listening port
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&mcoperatorv1.McKube{}).
+		For(&mcoperatorv1.MCKube{}).
 		Watches(
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(handler.MapFunc(r.findObjectsForPod)),
@@ -606,7 +606,7 @@ func (r *McKubeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // findObjectsForPod() : Finds McKube-related CRs in the namespace where the pod was created and generates Reconcile requests
-func (r *McKubeReconciler) findObjectsForPod(ctx context.Context, pod client.Object) []reconcile.Request {
+func (r *MCKubeReconciler) findObjectsForPod(ctx context.Context, pod client.Object) []reconcile.Request {
 	if pod.GetNamespace() != targetNamespace {
 		return []reconcile.Request{}
 	}
@@ -622,7 +622,7 @@ func (r *McKubeReconciler) findObjectsForPod(ctx context.Context, pod client.Obj
 		r.cleanupPodState(pod.GetName(), pod.GetNamespace())
 	}
 
-	mckubeList := &mcoperatorv1.McKubeList{}
+	mckubeList := &mcoperatorv1.MCKubeList{}
 	if err := r.List(ctx, mckubeList, client.InNamespace(pod.GetNamespace())); err != nil {
 		log.Log.Error(err, "Failed to list McKube resources in findObjectsForPod")
 		return []reconcile.Request{}
@@ -644,7 +644,7 @@ func (r *McKubeReconciler) findObjectsForPod(ctx context.Context, pod client.Obj
 }
 
 // cleanupPodState: Cleans up all internal state when a Pod is deleted
-func (r *McKubeReconciler) cleanupPodState(podName, namespace string) {
+func (r *MCKubeReconciler) cleanupPodState(podName, namespace string) {
 	logger := log.Log.WithValues("McKube/rt.Cleanup", "PodState", "pod", podName)
 	logger.V(0).Info("Cleaning up internal state for deleted pod")
 
@@ -664,7 +664,7 @@ func (r *McKubeReconciler) cleanupPodState(podName, namespace string) {
 }
 
 // cleanupPodStateByMcKubeName: Cleans up pod state by McKube CR name
-func (r *McKubeReconciler) cleanupPodStateByMcKubeName(ctx context.Context, mcKubeName types.NamespacedName) {
+func (r *MCKubeReconciler) cleanupPodStateByMcKubeName(ctx context.Context, mcKubeName types.NamespacedName) {
 	logger := log.Log.WithValues("McKube/rt.Cleanup", "McKubeDeleted", "mckube", mcKubeName.Name)
 
 	// Since McKube CR is deleted, it is difficult to infer podName from the name
@@ -701,7 +701,7 @@ func (r *McKubeReconciler) cleanupPodStateByMcKubeName(ctx context.Context, mcKu
 }
 
 // ensurePodRuntimeStateInitialized: Checks and initializes pod runtime state
-func (r *McKubeReconciler) ensurePodRuntimeStateInitialized(podName string) {
+func (r *MCKubeReconciler) ensurePodRuntimeStateInitialized(podName string) {
 	runtimeStateMutex.Lock()
 	if _, exists := podRuntimeState[podName]; !exists {
 		podRuntimeState[podName] = "low" // Set to low as default value
@@ -716,7 +716,7 @@ func (r *McKubeReconciler) ensurePodRuntimeStateInitialized(podName string) {
 // ===================== Overrun Listening Thread =====================
 
 // StartOverrunListener: Starts HTTP server for receiving overrun events
-func (r *McKubeReconciler) StartOverrunListener(port int) {
+func (r *MCKubeReconciler) StartOverrunListener(port int) {
 	go func() {
 		logger := log.Log.WithValues("McKube/rt.OverrunListener", "HTTP")
 		logger.V(0).Info("Starting overrun listener", "port", port)
@@ -757,7 +757,7 @@ func (r *McKubeReconciler) StartOverrunListener(port int) {
 }
 
 // handleOverrunEvent: Handles overrun event processing
-func (r *McKubeReconciler) handleOverrunEvent(data OverrunData) {
+func (r *MCKubeReconciler) handleOverrunEvent(data OverrunData) {
 	logger := log.Log.WithValues("McKube/rt.OverrunHandler", "Overrun")
 	ctx := context.TODO()
 
@@ -799,13 +799,13 @@ func (r *McKubeReconciler) handleOverrunEvent(data OverrunData) {
 		"podPhase", pod.Status.Phase,
 		"timestamp", data.Timestamp)
 
-	mckubeList := &mcoperatorv1.McKubeList{}
+	mckubeList := &mcoperatorv1.MCKubeList{}
 	if err := r.List(ctx, mckubeList, client.InNamespace(pod.Namespace)); err != nil {
 		logger.Error(err, "Failed to list McKube resources")
 		return
 	}
 
-	var targetMcKube *mcoperatorv1.McKube
+	var targetMcKube *mcoperatorv1.MCKube
 	for i := range mckubeList.Items {
 		if mckubeList.Items[i].Spec.PodName == pod.Name {
 			targetMcKube = &mckubeList.Items[i]
@@ -898,7 +898,7 @@ func (r *McKubeReconciler) handleOverrunEvent(data OverrunData) {
 }
 
 // findPodByContainerID: Finds a pod by container ID on a specific node
-func (r *McKubeReconciler) findPodByContainerID(ctx context.Context, nodeName string, containerID string) (*corev1.Pod, error) {
+func (r *MCKubeReconciler) findPodByContainerID(ctx context.Context, nodeName string, containerID string) (*corev1.Pod, error) {
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList); err != nil {
 		return nil, fmt.Errorf("failed to list pods: %v", err)
@@ -949,7 +949,7 @@ func (r *McKubeReconciler) findPodByContainerID(ctx context.Context, nodeName st
 }
 
 // SendRTRequest sends RT configuration request to daemon (implements RTRequestSender interface)
-func (r *McKubeReconciler) SendRTRequest(nodeIP string, req CgroupRequest) error {
+func (r *MCKubeReconciler) SendRTRequest(nodeIP string, req CgroupRequest) error {
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
@@ -975,7 +975,7 @@ func (r *McKubeReconciler) SendRTRequest(nodeIP string, req CgroupRequest) error
 // checkAndPreemptForPod: Check and execute preemption before Pod allocation
 // High criticality: Can preempt Middle/Low
 // Middle criticality: Can preempt Low
-func (r *McKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev1.Pod, targetCores []int, cpuMillis int64, criticality string) error {
+func (r *MCKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev1.Pod, targetCores []int, cpuMillis int64, criticality string) error {
 	logger := log.Log.WithValues("McKube/rt.Preemption", "Check")
 
 	nodeName := pod.Spec.NodeName
@@ -1055,7 +1055,7 @@ func (r *McKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 // findPreemptionVictims: Find preemptable Pods
 // High can preempt Middle, Low
 // Middle can preempt Low
-func (r *McKubeReconciler) findPreemptionVictims(pool *CPUPool, coreID int, preemptorCriticality string) []PodInfo {
+func (r *MCKubeReconciler) findPreemptionVictims(pool *CPUPool, coreID int, preemptorCriticality string) []PodInfo {
 	pods := pool.GetPodsOnCore(coreID)
 	victims := make([]PodInfo, 0)
 
@@ -1074,7 +1074,7 @@ func (r *McKubeReconciler) findPreemptionVictims(pool *CPUPool, coreID int, pree
 }
 
 // preemptPod: Preempt Pod by migrating to another core or evicting
-func (r *McKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool *CPUPool, currentCore int) error {
+func (r *MCKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool *CPUPool, currentCore int) error {
 	logger := log.Log.WithValues("McKube/rt.Preemption", "Evict")
 
 	logger.V(0).Info("Preempting pod from core",
@@ -1133,15 +1133,15 @@ func (r *McKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 }
 
 
-func (r *McKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev1.Pod, newCore int) error {
+func (r *MCKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev1.Pod, newCore int) error {
 	logger := log.Log.WithValues("McKube/rt.CoreUpdate", "Affinity")
 
-	mckubeList := &mcoperatorv1.McKubeList{}
+	mckubeList := &mcoperatorv1.MCKubeList{}
 	if err := r.List(ctx, mckubeList, client.InNamespace(pod.Namespace)); err != nil {
 		return fmt.Errorf("failed to list McKube resources: %v", err)
 	}
 
-	var targetMcKube *mcoperatorv1.McKube
+	var targetMcKube *mcoperatorv1.MCKube
 	for i := range mckubeList.Items {
 		if mckubeList.Items[i].Spec.PodName == pod.Name {
 			targetMcKube = &mckubeList.Items[i]
@@ -1199,7 +1199,7 @@ func (r *McKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev
 // ParseCoreSet is provided by mc-kube/internal/cpupool package.
 
 
-func (r *McKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.Pod, mckube *mcoperatorv1.McKube) error {
+func (r *MCKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.Pod, mckube *mcoperatorv1.MCKube) error {
 	if mckube.Spec.RTSettings == nil || mckube.Spec.RTSettings.Core == nil {
 		return nil
 	}
@@ -1291,7 +1291,7 @@ func (r *McKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 }
 
 // applyRTSettingsToContainers applies RT cgroup settings to all containers in a pod
-func (r *McKubeReconciler) applyRTSettingsToContainers(ctx context.Context, pod *corev1.Pod, mckube *mcoperatorv1.McKube) error {
+func (r *MCKubeReconciler) applyRTSettingsToContainers(ctx context.Context, pod *corev1.Pod, mckube *mcoperatorv1.MCKube) error {
 	logger := log.Log.WithValues("McKube/rt.RTSettings", "Apply")
 
 	if mckube.Spec.RTSettings == nil {

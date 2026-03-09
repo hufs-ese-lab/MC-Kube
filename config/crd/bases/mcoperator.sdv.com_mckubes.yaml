@@ -8,8 +8,8 @@ metadata:
 spec:
   group: mcoperator.sdv.com
   names:
-    kind: McKube
-    listKind: McKubeList
+    kind: MCKube
+    listKind: MCKubeList
     plural: mckubes
     singular: mckube
   scope: Namespaced
@@ -17,7 +17,7 @@ spec:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: McKube is the Schema for the mckubes API
+        description: MCKube is the Schema for the mckubes API
         properties:
           apiVersion:
             description: |-
@@ -37,7 +37,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: McKubeSpec defines the desired state of McKube
+            description: MCKubeSpec defines the desired state of MCKube
             properties:
               criticality:
                 description: 'Criticality defines the priority level: Low, Middle,

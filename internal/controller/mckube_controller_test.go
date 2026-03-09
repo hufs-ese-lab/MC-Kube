@@ -30,7 +30,7 @@ import (
 	mcoperatorv1 "mc-kube/api/v1"
 )
 
-var _ = Describe("McKube Controller", func() {
+var _ = Describe("MCKube Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -40,13 +40,13 @@ var _ = Describe("McKube Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		mckube := &mcoperatorv1.McKube{}
+		mckube := &mcoperatorv1.MCKube{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind McKube")
+			By("creating the custom resource for the Kind MCKube")
 			err := k8sClient.Get(ctx, typeNamespacedName, mckube)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &mcoperatorv1.McKube{
+				resource := &mcoperatorv1.MCKube{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,16 +59,16 @@ var _ = Describe("McKube Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &mcoperatorv1.McKube{}
+			resource := &mcoperatorv1.MCKube{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance McKube")
+			By("Cleanup the specific resource instance MCKube")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &McKubeReconciler{
+			controllerReconciler := &MCKubeReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}

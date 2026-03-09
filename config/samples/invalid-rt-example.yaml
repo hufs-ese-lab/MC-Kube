@@ -1,5 +1,5 @@
 apiVersion: mcoperator.sdv.com/v1
-kind: McKube
+kind: MCKube
 metadata:
   name: invalid-rt-test-pod-config
   namespace: default

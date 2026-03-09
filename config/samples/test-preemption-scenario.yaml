@@ -16,7 +16,7 @@ spec:
     image: nginx:latest
 ---
 apiVersion: mcoperator.sdv.com/v1
-kind: McKube
+kind: MCKube
 metadata:
   name: middle-pod-config
   namespace: default
@@ -43,7 +43,7 @@ spec:
     image: nginx:latest
 ---
 apiVersion: mcoperator.sdv.com/v1
-kind: McKube
+kind: MCKube
 metadata:
   name: low-pod-config
   namespace: default
@@ -71,7 +71,7 @@ spec:
     image: nginx:latest
 ---
 apiVersion: mcoperator.sdv.com/v1
-kind: McKube
+kind: MCKube
 metadata:
   name: high-pod-config
   namespace: default

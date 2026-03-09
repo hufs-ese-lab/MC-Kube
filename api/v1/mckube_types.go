@@ -23,8 +23,8 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// McKubeSpec defines the desired state of McKube
-type McKubeSpec struct {
+// MCKubeSpec defines the desired state of MCKube
+type MCKubeSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
@@ -48,8 +48,8 @@ type RTSettings struct {
 	Core       *string `json:"core,omitempty"` // CPU core range (e.g., "2-3")
 }
 
-// McKubeStatus defines the observed state of McKube
-type McKubeStatus struct {
+// MCKubeStatus defines the observed state of MCKube
+type MCKubeStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
@@ -64,24 +64,24 @@ type McKubeStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// McKube is the Schema for the mckubes API
-type McKube struct {
+// MCKube is the Schema for the mckubes API
+type MCKube struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   McKubeSpec   `json:"spec,omitempty"`
-	Status McKubeStatus `json:"status,omitempty"`
+	Spec   MCKubeSpec   `json:"spec,omitempty"`
+	Status MCKubeStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// McKubeList contains a list of McKube
-type McKubeList struct {
+// MCKubeList contains a list of MCKube
+type MCKubeList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []McKube `json:"items"`
+	Items           []MCKube `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&McKube{}, &McKubeList{})
+	SchemeBuilder.Register(&MCKube{}, &MCKubeList{})
 }
