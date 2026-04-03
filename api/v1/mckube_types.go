@@ -30,8 +30,8 @@ type MCKubeSpec struct {
 
 	Node    string `json:"node,omitempty"`
 	PodName string `json:"podname,omitempty"`
-	// Criticality defines the priority level: Low, Middle, or High
-	// +kubebuilder:validation:Enum=Low;Middle;High
+	// Criticality defines the priority level: LOW, MIDDLE, or HIGH
+	// +kubebuilder:validation:Enum=LOW;MIDDLE;HIGH
 	Criticality              string `json:"criticality,omitempty"`
 	PressuredDeadlinesTotal  int    `json:"pressuredDeadlinesTotal,omitempty"`
 	PressuredDeadlinesPeriod int    `json:"pressuredDeadlinesPeriod,omitempty"`
@@ -43,8 +43,8 @@ type MCKubeSpec struct {
 // RTSettings defines RT cgroup configuration
 type RTSettings struct {
 	Period     int     `json:"period"`         // RT period in microseconds
-	RuntimeLow int     `json:"runtime_low"`    // Initial conservative RT runtime in microseconds
-	RuntimeHi  int     `json:"runtime_hi"`     // Elevated RT runtime after overrun detection in microseconds
+	RuntimeLow int     `json:"budget_lo"`      // Initial conservative RT runtime in microseconds
+	RuntimeHi  int     `json:"budget_hi"`      // Elevated RT runtime after overrun detection in microseconds
 	Core       *string `json:"core,omitempty"` // CPU core range (e.g., "2-3")
 }
 

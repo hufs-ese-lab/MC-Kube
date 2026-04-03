@@ -26,8 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mcoperatorv1 "mc-kube/api/v1"
-	"mc-kube/internal/ipvs"
 	"mc-kube/internal/cpupool"
+	"mc-kube/internal/ipvs"
 )
 
 // Type aliases for ipvs package types
@@ -49,11 +49,11 @@ var runtimeStateMutex sync.RWMutex
 
 // CgroupRequest for RT daemon communication
 type CgroupRequest struct {
-	ContainerID    string  `json:"container_id"`
-	Period         int     `json:"period"`
-	Runtime        int     `json:"runtime"`
-	Core           *string `json:"core,omitempty"`
-	OnlyRuntime    bool    `json:"only_runtime,omitempty"` // true = escalation mode (period unchanged)
+	ContainerID string  `json:"container_id"`
+	Period      int     `json:"period"`
+	Runtime     int     `json:"runtime"`
+	Core        *string `json:"core,omitempty"`
+	OnlyRuntime bool    `json:"only_runtime,omitempty"` // true = escalation mode (period unchanged)
 }
 
 // RTRequestSender interface for sending RT requests to nodes
@@ -70,11 +70,11 @@ var Timers = make(map[string]int)
 const polling_rate = 10
 
 // Criticality order: A < B < C
-// Criticality order: Low < Middle < High
+// Criticality order: LOW < MIDDLE < HIGH
 var criticalityRank = map[string]int{
-	"Low":    0,
-	"Middle": 1,
-	"High":   2,
+	"LOW":    0,
+	"MIDDLE": 1,
+	"HIGH":   2,
 }
 
 const targetNamespace = "default"
@@ -126,7 +126,6 @@ type OverrunData struct {
 type CPUCoreInfo = cpupool.CPUCoreInfo
 type PodInfo = cpupool.PodInfo
 type CPUPool = cpupool.CPUPool
-
 
 // Track last CPU state per node (nodeName -> isCpuBusy)
 var lastCpuBusyState = make(map[string]bool)
@@ -253,7 +252,7 @@ func (r *MCKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 							logger.Error(err, "Failed to initialize allocated core in status")
 						}
 					}
-					
+
 					targetCores := cpupool.ParseCoreSet(actualCoreStr)
 
 					// Calculate CPU usage based on RT settings
@@ -354,11 +353,11 @@ func (r *MCKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 						lastCpuBusyStateMutex.Unlock()
 
 						if isCpuBusy {
-							
+
 							loggerHighPrio.Info("CPU pressure detected, handling with EventHandler", "node", rt.Spec.Node)
 							r.EventHandler.HandleNodeCPUPressure(ctx, rt.Spec.Node)
 						} else {
-							
+
 							loggerHighPrio.Info("CPU recovered, handling with controller", "node", rt.Spec.Node)
 							r.handleCPURecovery(ctx, rt.Spec.Node)
 						}
@@ -437,7 +436,6 @@ func (r *MCKubeReconciler) handleCPURecovery(ctx context.Context, nodeName strin
 			continue
 		}
 
-		
 		logger.V(0).Info("Reverting pod runtime from hi to low",
 			"pod", pod.Name,
 			"runtime_hi", targetMcKube.Spec.RTSettings.RuntimeHi,
@@ -457,10 +455,10 @@ func (r *MCKubeReconciler) handleCPURecovery(ctx context.Context, nodeName strin
 
 			req := CgroupRequest{
 				ContainerID: cs.ContainerID,
-				Period:      targetMcKube.Spec.RTSettings.Period,  // Passed for reference only
+				Period:      targetMcKube.Spec.RTSettings.Period, // Passed for reference only
 				Runtime:     targetMcKube.Spec.RTSettings.RuntimeLow,
 				Core:        targetMcKube.Spec.RTSettings.Core,
-				OnlyRuntime: true,  // Change only runtime even during CPU recovery
+				OnlyRuntime: true, // Change only runtime even during CPU recovery
 			}
 
 			if err := r.SendRTRequest(nodeIP, req); err != nil {
@@ -789,7 +787,6 @@ func (r *MCKubeReconciler) handleOverrunEvent(data OverrunData) {
 		}
 	}
 
-	
 	logger.V(0).Info("=== Overrun Pod Identified ===",
 		"podName", pod.Name,
 		"namespace", pod.Namespace,
@@ -862,7 +859,7 @@ func (r *MCKubeReconciler) handleOverrunEvent(data OverrunData) {
 		Period:      targetMcKube.Spec.RTSettings.Period,
 		Runtime:     targetMcKube.Spec.RTSettings.RuntimeHi,
 		Core:        targetMcKube.Spec.RTSettings.Core,
-		OnlyRuntime: true,  // Escalation mode: change runtime only, period unchanged
+		OnlyRuntime: true, // Escalation mode: change runtime only, period unchanged
 	}
 
 	if err := r.SendRTRequest(nodeIP, req); err != nil {
@@ -973,8 +970,8 @@ func (r *MCKubeReconciler) SendRTRequest(nodeIP string, req CgroupRequest) error
 // ===================== Preemption Logic =====================
 
 // checkAndPreemptForPod: Check and execute preemption before Pod allocation
-// High criticality: Can preempt Middle/Low
-// Middle criticality: Can preempt Low
+// HIGH criticality: Can preempt MIDDLE/LOW
+// MIDDLE criticality: Can preempt LOW
 func (r *MCKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev1.Pod, targetCores []int, cpuMillis int64, criticality string) error {
 	logger := log.Log.WithValues("McKube/rt.Preemption", "Check")
 
@@ -991,9 +988,8 @@ func (r *MCKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 		return nil
 	}
 
-	
 	for _, coreID := range targetCores {
-		
+
 		currentUsage := pool.GetCoreUtilization(coreID)
 		afterUsage := currentUsage + float64(cpuMillis)/1000.0
 
@@ -1003,7 +999,6 @@ func (r *MCKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 			"afterUsage", fmt.Sprintf("%.2f%%", afterUsage*100),
 			"threshold", fmt.Sprintf("%.2f%%", coreUtilizationThreshold*100))
 
-		
 		if afterUsage > coreUtilizationThreshold {
 			// Calculate the exact budget that must be freed to get below the threshold.
 			needed := afterUsage - coreUtilizationThreshold
@@ -1053,8 +1048,8 @@ func (r *MCKubeReconciler) checkAndPreemptForPod(ctx context.Context, pod *corev
 }
 
 // findPreemptionVictims: Find preemptable Pods
-// High can preempt Middle, Low
-// Middle can preempt Low
+// HIGH can preempt MIDDLE, LOW
+// MIDDLE can preempt LOW
 func (r *MCKubeReconciler) findPreemptionVictims(pool *CPUPool, coreID int, preemptorCriticality string) []PodInfo {
 	pods := pool.GetPodsOnCore(coreID)
 	victims := make([]PodInfo, 0)
@@ -1091,10 +1086,8 @@ func (r *MCKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 		return fmt.Errorf("failed to get victim pod: %v", err)
 	}
 
-	
 	pool.RemovePodFromCore(currentCore, victim.Name)
 
-	
 	newCore := pool.FindLeastLoadedCore()
 	newCoreUsage := pool.GetCoreUtilization(newCore)
 
@@ -1104,11 +1097,9 @@ func (r *MCKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 		"toCore", newCore,
 		"newCoreUsage", fmt.Sprintf("%.2f%%", newCoreUsage*100))
 
-	
 	if newCoreUsage+float64(victim.CPUMillis)/1000.0 <= coreUtilizationThreshold {
 		pool.AddPodToCore(newCore, victim)
 
-		
 		if err := r.updatePodCoreAffinity(ctx, pod, newCore); err != nil {
 			logger.Error(err, "Failed to update pod core affinity",
 				"pod", victim.Name,
@@ -1124,14 +1115,12 @@ func (r *MCKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 		return nil
 	}
 
-	
 	logger.V(0).Info("No available core for migration, evicting pod",
 		"pod", victim.Name,
 		"criticality", victim.Criticality)
 
 	return r.EventHandler.EvictPod(ctx, pod)
 }
-
 
 func (r *MCKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev1.Pod, newCore int) error {
 	logger := log.Log.WithValues("McKube/rt.CoreUpdate", "Affinity")
@@ -1154,7 +1143,6 @@ func (r *MCKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev
 		return nil
 	}
 
-	
 	newCoreStr := fmt.Sprintf("%d", newCore)
 	targetMcKube.Status.AllocatedCore = newCoreStr
 
@@ -1166,7 +1154,6 @@ func (r *MCKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev
 		"pod", pod.Name,
 		"newCore", newCore)
 
-	
 	nodeIP := pod.Status.HostIP
 	if nodeIP == "" {
 		return fmt.Errorf("node IP not available")
@@ -1198,7 +1185,6 @@ func (r *MCKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev
 // ===================== Helper Functions =====================
 // ParseCoreSet is provided by mc-kube/internal/cpupool package.
 
-
 func (r *MCKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.Pod, mckube *mcoperatorv1.MCKube) error {
 	if mckube.Spec.RTSettings == nil || mckube.Spec.RTSettings.Core == nil {
 		return nil
@@ -1209,13 +1195,8 @@ func (r *MCKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 		return fmt.Errorf("pod has no assigned node")
 	}
 
-	
 	pool := cpupool.GetOrCreateCPUPool(nodeName, cpupool.DefaultNumCores)
 
-	
-	
-	
-	
 	runtimeStateMutex.RLock()
 	currentRuntimeState := podRuntimeState[pod.Name]
 	runtimeStateMutex.RUnlock()
@@ -1227,18 +1208,15 @@ func (r *MCKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 		effectiveRuntime = mckube.Spec.RTSettings.RuntimeLow
 	}
 
-	
 	cpuMillis := int64(0)
 	if mckube.Spec.RTSettings.Period > 0 {
 		cpuMillis = int64(float64(effectiveRuntime) / float64(mckube.Spec.RTSettings.Period) * 1000.0)
 	}
 
-	
 	if cpuMillis == 0 {
-		cpuMillis = 100 
+		cpuMillis = 100
 	}
 
-	
 	podInfo := PodInfo{
 		Name:        pod.Name,
 		Namespace:   pod.Namespace,
@@ -1247,10 +1225,9 @@ func (r *MCKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 		CoreSet:     cpupool.ParseCoreSet(*mckube.Spec.RTSettings.Core),
 	}
 
-	
 	needsUpdate := false
 	for _, coreID := range podInfo.CoreSet {
-		
+
 		pool.Mu.RLock()
 		core, exists := pool.Cores[coreID]
 		var existingPod PodInfo
@@ -1260,7 +1237,6 @@ func (r *MCKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 		}
 		pool.Mu.RUnlock()
 
-		
 		if !exists || !podExists ||
 			existingPod.CPUMillis != podInfo.CPUMillis ||
 			existingPod.Criticality != podInfo.Criticality {
@@ -1269,10 +1245,9 @@ func (r *MCKubeReconciler) updateCPUPoolForPod(ctx context.Context, pod *corev1.
 		}
 	}
 
-	
 	if needsUpdate {
 		for _, coreID := range podInfo.CoreSet {
-			
+
 			pool.RemovePodFromCore(coreID, pod.Name)
 			pool.AddPodToCore(coreID, podInfo)
 		}
@@ -1303,7 +1278,6 @@ func (r *MCKubeReconciler) applyRTSettingsToContainers(ctx context.Context, pod 
 		return fmt.Errorf("node IP not available")
 	}
 
-	
 	runtimeStateMutex.RLock()
 	currentRuntimeState := podRuntimeState[pod.Name]
 	runtimeStateMutex.RUnlock()
@@ -1315,13 +1289,11 @@ func (r *MCKubeReconciler) applyRTSettingsToContainers(ctx context.Context, pod 
 		effectiveRuntime = mckube.Spec.RTSettings.RuntimeLow
 	}
 
-	
 	for _, cs := range pod.Status.ContainerStatuses {
 		if cs.ContainerID == "" {
 			continue
 		}
 
-		
 		var coreToUse *string
 		if mckube.Status.AllocatedCore != "" {
 			coreToUse = &mckube.Status.AllocatedCore
@@ -1379,4 +1351,3 @@ func removeString(slice []string, s string) []string {
 	}
 	return result
 }
-

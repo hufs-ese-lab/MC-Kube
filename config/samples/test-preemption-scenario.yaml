@@ -22,11 +22,11 @@ metadata:
   namespace: default
 spec:
   podname: middle-pod
-  criticality: "Middle"
+  criticality: "MIDDLE"
   rtSettings:
     period: 100000        # 100ms
-    runtime_low: 40000    # 40ms → 40% CPU
-    runtime_hi: 60000     # 60ms → 60% CPU
+    budget_lo: 40000      # 40ms → 40% CPU
+    budget_hi: 60000      # 60ms → 60% CPU
     core: "2"             # Assigned to Core 2
 ---
 # Step 2: Low criticality Pod (Assigned to Core 2, 35% CPU usage)
@@ -49,11 +49,11 @@ metadata:
   namespace: default
 spec:
   podname: low-pod
-  criticality: "Low"
+  criticality: "LOW"
   rtSettings:
     period: 100000        # 100ms
-    runtime_low: 35000    # 35ms → 35% CPU
-    runtime_hi: 50000     # 50ms → 50% CPU
+    budget_lo: 35000      # 35ms → 35% CPU
+    budget_hi: 50000      # 50ms → 50% CPU
     core: "2"             # Assigned to Core 2
 ---
 # Step 3: High criticality Pod (Attempts assignment to Core 2, 25% CPU usage)
@@ -77,9 +77,9 @@ metadata:
   namespace: default
 spec:
   podname: high-pod
-  criticality: "High"
+  criticality: "HIGH"
   rtSettings:
     period: 100000        # 100ms
-    runtime_low: 25000    # 25ms → 25% CPU
-    runtime_hi: 40000     # 40ms → 40% CPU
+    budget_lo: 25000      # 25ms → 25% CPU
+    budget_hi: 40000      # 40ms → 40% CPU
     core: "2"             # Assigned to Core 2 → Triggers preemption!

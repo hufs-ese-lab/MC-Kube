@@ -40,12 +40,12 @@ spec:
             description: MCKubeSpec defines the desired state of MCKube
             properties:
               criticality:
-                description: 'Criticality defines the priority level: Low, Middle,
-                  or High'
+                description: 'Criticality defines the priority level: LOW, MIDDLE,
+                  or HIGH'
                 enum:
-                - Low
-                - Middle
-                - High
+                - LOW
+                - MIDDLE
+                - HIGH
                 type: string
               node:
                 type: string
@@ -58,22 +58,22 @@ spec:
               rtSettings:
                 description: RT Cgroup settings
                 properties:
+                  budget_hi:
+                    type: integer
+                  budget_lo:
+                    type: integer
                   core:
                     type: string
                   period:
                     type: integer
-                  runtime_hi:
-                    type: integer
-                  runtime_low:
-                    type: integer
                 required:
+                - budget_hi
+                - budget_lo
                 - period
-                - runtime_hi
-                - runtime_low
                 type: object
             type: object
           status:
-            description: McKubeStatus defines the observed state of McKube
+            description: MCKubeStatus defines the observed state of MCKube
             properties:
               allocatedCore:
                 description: AllocatedCore tracks the actual core allocated to the

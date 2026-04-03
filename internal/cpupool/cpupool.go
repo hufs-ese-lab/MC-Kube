@@ -27,9 +27,9 @@ const DefaultNumCores = 16
 // CriticalityRank maps criticality strings to comparable integers.
 // Higher value = higher priority.
 var CriticalityRank = map[string]int{
-	"Low":    0,
-	"Middle": 1,
-	"High":   2,
+	"LOW":    0,
+	"MIDDLE": 1,
+	"HIGH":   2,
 }
 
 // ── Shared data types (previously in controller package) ─────────────────────
@@ -45,7 +45,7 @@ type CPUCoreInfo struct {
 type PodInfo struct {
 	Name        string
 	Namespace   string
-	Criticality string // "Low" | "Middle" | "High"
+	Criticality string // "LOW" | "MIDDLE" | "HIGH"
 	CPUMillis   int64  // millicore budget (runtime/period * 1000)
 	CoreSet     []int  // assigned core IDs
 }
@@ -218,8 +218,8 @@ type FeasibilityResult struct {
 // SelectBestNodeAndCore selects the best (node, core) for an incoming RT pod.
 //
 //   - nodeList contains the live Kubernetes nodes (used for core-count metadata).
-//   - requiredBudget = runtime_hi / period of the incoming pod.
-//   - incomingCriticality = "Low" | "Middle" | "High".
+//   - requiredBudget = budget_hi / period of the incoming pod.
+//   - incomingCriticality = "LOW" | "MIDDLE" | "HIGH".
 //   - preferredCores: when non-nil, only these core IDs are considered per node.
 //
 // The function reads globalPools directly.  Nodes without a pool yet are treated

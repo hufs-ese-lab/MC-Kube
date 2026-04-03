@@ -39,12 +39,12 @@ func (v *RTValidator) Handle(ctx context.Context, req admission.Request) admissi
 
 	rtSettings := mckubeCR.Spec.RTSettings
 
-	// ?€?€ Phase 1: mathematical parameter validation (unchanged) ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
+	// ?ï¿½?ï¿½ Phase 1: mathematical parameter validation (unchanged) ?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½
 	if err := v.validateRTSettings(rtSettings); err != nil {
 		return admission.Denied(fmt.Sprintf("Invalid RT settings: %v", err))
 	}
 
-	// ?€?€ Phase 2: RT CPU budget feasibility check ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
+	// ?ï¿½?ï¿½ Phase 2: RT CPU budget feasibility check ?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½?ï¿½
 	// Fetch the node list so SelectBestNodeAndCore knows CPU core counts.
 	nodeList := &corev1.NodeList{}
 	if err := v.Client.List(ctx, nodeList); err != nil {
@@ -66,7 +66,7 @@ func (v *RTValidator) Handle(ctx context.Context, req admission.Request) admissi
 	selectedNode := mckubeCR.Spec.Node // may be empty if pod not yet bound
 
 	if selectedCoreStr != "" && selectedNode != "" {
-		// ?€?€ Case A: Mutating Webhook has already fixed the node+core.
+		// ?ï¿½?ï¿½ Case A: Mutating Webhook has already fixed the node+core.
 		// Validate feasibility against that specific (node, core) pair.
 		coreIDs := cpupool.ParseCoreSet(selectedCoreStr)
 		if len(coreIDs) == 0 {
@@ -87,7 +87,7 @@ func (v *RTValidator) Handle(ctx context.Context, req admission.Request) admissi
 		return admission.Allowed("RT settings valid and node/core feasibility confirmed")
 	}
 
-	// ?€?€ Case B: Core not yet determined (Mutating failed or core still unset).
+	// ?ï¿½?ï¿½ Case B: Core not yet determined (Mutating failed or core still unset).
 	// Run the full Worst-Fit + eviction-lookahead search over all nodes.
 	log.Log.V(0).Info("Core not fixed by Mutating Webhook; running full feasibility search",
 		"pod", pod.Name)
@@ -129,23 +129,23 @@ func (v *RTValidator) validateRTSettings(rtSettings *mcoperatorv1.RTSettings) er
 		return fmt.Errorf("RT period must be positive, got: %d", rtSettings.Period)
 	}
 	if rtSettings.RuntimeLow <= 0 {
-		return fmt.Errorf("RT runtime_low must be positive, got: %d", rtSettings.RuntimeLow)
+		return fmt.Errorf("RT budget_lo must be positive, got: %d", rtSettings.RuntimeLow)
 	}
 	if rtSettings.RuntimeLow > rtSettings.Period {
-		return fmt.Errorf("RT runtime_low (%d) cannot be greater than period (%d)", rtSettings.RuntimeLow, rtSettings.Period)
+		return fmt.Errorf("RT budget_lo (%d) cannot be greater than period (%d)", rtSettings.RuntimeLow, rtSettings.Period)
 	}
 	if rtSettings.RuntimeHi <= 0 {
-		return fmt.Errorf("RT runtime_hi must be positive, got: %d", rtSettings.RuntimeHi)
+		return fmt.Errorf("RT budget_hi must be positive, got: %d", rtSettings.RuntimeHi)
 	}
 	if rtSettings.RuntimeHi > rtSettings.Period {
-		return fmt.Errorf("RT runtime_hi (%d) cannot be greater than period (%d)", rtSettings.RuntimeHi, rtSettings.Period)
+		return fmt.Errorf("RT budget_hi (%d) cannot be greater than period (%d)", rtSettings.RuntimeHi, rtSettings.Period)
 	}
 	if rtSettings.RuntimeLow > rtSettings.RuntimeHi {
-		return fmt.Errorf("RT runtime_low (%d) cannot be greater than runtime_hi (%d)", rtSettings.RuntimeLow, rtSettings.RuntimeHi)
+		return fmt.Errorf("RT budget_lo (%d) cannot be greater than budget_hi (%d)", rtSettings.RuntimeLow, rtSettings.RuntimeHi)
 	}
 	maxRuntime := int(float64(rtSettings.Period) * cpupool.RTCapacityPerCore)
 	if rtSettings.RuntimeHi > maxRuntime {
-		return fmt.Errorf("RT runtime_hi (%d) exceeds %.0f%% of period (%d), max allowed: %d",
+		return fmt.Errorf("RT budget_hi (%d) exceeds %.0f%% of period (%d), max allowed: %d",
 			rtSettings.RuntimeHi, cpupool.RTCapacityPerCore*100, rtSettings.Period, maxRuntime)
 	}
 	if rtSettings.Core != nil && len(*rtSettings.Core) == 0 {
