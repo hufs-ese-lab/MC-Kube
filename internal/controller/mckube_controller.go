@@ -133,6 +133,9 @@ var lastCpuBusyStateMutex sync.RWMutex
 
 const coreUtilizationThreshold = 0.9 // 90% threshold
 
+// Linux DL scheduler rejects runtime=0 and requires runtime >= 2us.
+const minAllowedDLRuntimeUS = 2
+
 // ===================== Reconcile =====================
 
 func (r *MCKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -321,8 +324,7 @@ func (r *MCKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 					}
 				}
 
-				// Apply RT settings to containers
-				if pod.Status.Phase == corev1.PodRunning {
+				if pod.Status.Phase == corev1.PodRunning && pod.DeletionTimestamp == nil {
 					if err := r.applyRTSettingsToContainers(ctx, pod, rt); err != nil {
 						logger.Error(err, "Failed to apply RT settings to containers", "pod", pod.Name)
 					}
@@ -1086,18 +1088,15 @@ func (r *MCKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 		return fmt.Errorf("failed to get victim pod: %v", err)
 	}
 
-	pool.RemovePodFromCore(currentCore, victim.Name)
+	newCore, newCoreUsage, canMigrate := r.findMigrationTargetCore(pool, currentCore, victim.CPUMillis)
+	if canMigrate {
+		logger.V(0).Info("Attempting to migrate pod to different core",
+			"pod", victim.Name,
+			"fromCore", currentCore,
+			"toCore", newCore,
+			"newCoreUsage", fmt.Sprintf("%.2f%%", newCoreUsage*100))
 
-	newCore := pool.FindLeastLoadedCore()
-	newCoreUsage := pool.GetCoreUtilization(newCore)
-
-	logger.V(0).Info("Attempting to migrate pod to different core",
-		"pod", victim.Name,
-		"fromCore", currentCore,
-		"toCore", newCore,
-		"newCoreUsage", fmt.Sprintf("%.2f%%", newCoreUsage*100))
-
-	if newCoreUsage+float64(victim.CPUMillis)/1000.0 <= coreUtilizationThreshold {
+		pool.RemovePodFromCore(currentCore, victim.Name)
 		pool.AddPodToCore(newCore, victim)
 
 		if err := r.updatePodCoreAffinity(ctx, pod, newCore); err != nil {
@@ -1117,9 +1116,127 @@ func (r *MCKubeReconciler) preemptPod(ctx context.Context, victim PodInfo, pool 
 
 	logger.V(0).Info("No available core for migration, evicting pod",
 		"pod", victim.Name,
-		"criticality", victim.Criticality)
+		"criticality", victim.Criticality,
+		"fromCore", currentCore)
+
+	if throttledAt, err := r.throttlePodRuntimeBeforeEviction(ctx, pod); err != nil {
+		logger.Error(err, "Failed to apply pre-eviction runtime throttling; continuing with eviction",
+			"victimPod", victim.Name,
+			"runtimeUS", minAllowedDLRuntimeUS)
+	} else {
+		logger.V(0).Info("Pre-eviction runtime throttling applied",
+			"victimPod", victim.Name,
+			"runtimeUS", minAllowedDLRuntimeUS,
+			"throttlingAppliedAt", throttledAt.UTC().Format(time.RFC3339Nano))
+	}
 
 	return r.EventHandler.EvictPod(ctx, pod)
+}
+
+func (r *MCKubeReconciler) findMigrationTargetCore(pool *CPUPool, currentCore int, victimCPUMillis int64) (int, float64, bool) {
+	victimBudget := float64(victimCPUMillis) / 1000.0
+
+	pool.Mu.RLock()
+	defer pool.Mu.RUnlock()
+
+	bestCore := -1
+	bestUsage := 2.0
+	for coreID, core := range pool.Cores {
+		if coreID == currentCore {
+			continue
+		}
+
+		usage := float64(core.UsageMillis) / 1000.0
+		if usage+victimBudget <= coreUtilizationThreshold && usage < bestUsage {
+			bestCore = coreID
+			bestUsage = usage
+		}
+	}
+
+	if bestCore == -1 {
+		return -1, 0, false
+	}
+
+	return bestCore, bestUsage, true
+}
+
+func (r *MCKubeReconciler) throttlePodRuntimeBeforeEviction(ctx context.Context, victimPod *corev1.Pod) (time.Time, error) {
+	logger := log.Log.WithValues("McKube/rt.Preemption", "ThrottleBeforeEvict")
+
+	if victimPod == nil {
+		return time.Time{}, fmt.Errorf("victim pod is nil")
+	}
+
+	mckubeList := &mcoperatorv1.MCKubeList{}
+	if err := r.List(ctx, mckubeList, client.InNamespace(victimPod.Namespace)); err != nil {
+		return time.Time{}, fmt.Errorf("failed to list McKube resources for victim pod %s: %w", victimPod.Name, err)
+	}
+
+	var targetMcKube *mcoperatorv1.MCKube
+	for i := range mckubeList.Items {
+		if mckubeList.Items[i].Spec.PodName == victimPod.Name {
+			targetMcKube = &mckubeList.Items[i]
+			break
+		}
+	}
+
+	if targetMcKube == nil || targetMcKube.Spec.RTSettings == nil {
+		return time.Time{}, fmt.Errorf("no McKube RT settings found for victim pod %s", victimPod.Name)
+	}
+
+	nodeIP := victimPod.Status.HostIP
+	if nodeIP == "" {
+		return time.Time{}, fmt.Errorf("node IP not available for victim pod %s", victimPod.Name)
+	}
+
+	applied := false
+	var throttlingAppliedAt time.Time
+	for _, cs := range victimPod.Status.ContainerStatuses {
+		if cs.ContainerID == "" {
+			continue
+		}
+
+		req := CgroupRequest{
+			ContainerID: cs.ContainerID,
+			Period:      targetMcKube.Spec.RTSettings.Period,
+			Runtime:     minAllowedDLRuntimeUS,
+			Core:        targetMcKube.Spec.RTSettings.Core,
+			OnlyRuntime: true,
+		}
+
+		requestAt := time.Now()
+
+		if err := r.SendRTRequest(nodeIP, req); err != nil {
+			logger.Error(err, "Failed to throttle victim container runtime",
+				"victimPod", victimPod.Name,
+				"container", cs.Name,
+				"runtimeUS", minAllowedDLRuntimeUS)
+			continue
+		}
+
+		appliedAt := time.Now()
+		applyLatency := appliedAt.Sub(requestAt)
+
+		if throttlingAppliedAt.IsZero() {
+			throttlingAppliedAt = appliedAt
+		}
+		applied = true
+
+		logger.V(0).Info("Victim container runtime throttled before eviction",
+			"victimPod", victimPod.Name,
+			"container", cs.Name,
+			"runtimeUS", minAllowedDLRuntimeUS,
+			"nodeActuatorRequestAt", requestAt.UTC().Format(time.RFC3339Nano),
+			"nodeActuatorAppliedAt", appliedAt.UTC().Format(time.RFC3339Nano),
+			"nodeActuatorApplyLatencyUs", applyLatency.Microseconds(),
+			"throttlingAppliedAt", throttlingAppliedAt.UTC().Format(time.RFC3339Nano))
+	}
+
+	if !applied {
+		return time.Time{}, fmt.Errorf("failed to throttle any container for victim pod %s", victimPod.Name)
+	}
+
+	return throttlingAppliedAt, nil
 }
 
 func (r *MCKubeReconciler) updatePodCoreAffinity(ctx context.Context, pod *corev1.Pod, newCore int) error {

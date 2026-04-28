@@ -1,0 +1,449 @@
+# Fill other cores to prevent migration
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-0
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-0-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-0
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "0"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-1
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-1-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-1
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "1"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-2
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-2-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-2
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "2"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-3
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-3-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-3
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "3"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-4
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-4-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-4
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "4"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-5
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-5-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-5
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "5"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-6
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-6-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-6
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "6"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-7
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-7-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-7
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "7"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-8
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-8-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-8
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "8"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-9
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-9-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-9
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "9"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-10
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-10-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-10
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "10"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-11
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-11-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-11
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "11"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-12
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-12-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-12
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "12"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-13
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-13-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-13
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "13"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-14
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-14-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-14
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "14"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: filler-pod-15
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: filler-pod-15-config
+  namespace: default
+  labels:
+    sdv.com: filler-app
+spec:
+  podname: filler-pod-15
+  criticality: "LOW"
+  rtSettings:
+    period: 100000
+    budget_lo: 80000
+    budget_hi: 90000
+    core: "15"

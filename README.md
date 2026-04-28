@@ -32,7 +32,7 @@ Deploy the MC-Kube operator and CRDs in one go:
 ```sh
 # 1. Install CRDs & Operator
 make install
-make deploy IMG=ghcr.io/hufs-ese-lab/mc-kube:v1
+make deploy IMG=ghcr.io/hufs-ese-lab/mc-kube:latest
 
 # 2. Check Deployment
 kubectl get pods -n mc-kube-system

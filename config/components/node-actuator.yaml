@@ -18,7 +18,7 @@ spec:
       hostNetwork: true
       containers:
       - name: node-actuator
-        image: ghcr.io/hufs-ese-lab/node-actuator:v1
+        image: ghcr.io/hufs-ese-lab/node-actuator:v2
         imagePullPolicy: Always
         securityContext:
           privileged: true
