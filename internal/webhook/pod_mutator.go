@@ -337,7 +337,7 @@ func (m *PodMutator) applyRTSettingsViaDaemon(ctx context.Context, pod *corev1.P
 
 	if resp.StatusCode != http.StatusOK {
 		log.Log.Error(fmt.Errorf("node-actuator returned non-200 status"),
-			"Resource-controller error", "status", resp.StatusCode, "url", daemonURL,
+			"node-actuator error", "status", resp.StatusCode, "url", daemonURL,
 			"response", bodyString, "request", string(jsonBody))
 		return false
 	}

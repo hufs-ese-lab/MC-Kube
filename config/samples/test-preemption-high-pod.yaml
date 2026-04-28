@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: high-pod
+  namespace: default
+  labels:
+    sdv.com: high-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+---
+apiVersion: mcoperator.sdv.com/v1
+kind: MCKube
+metadata:
+  name: high-pod-config
+  namespace: default
+spec:
+  podname: high-pod
+  criticality: "HIGH"
+  rtSettings:
+    period: 100000        # 100ms
+    budget_lo: 25000      # 25ms → 25% CPU
+    budget_hi: 40000      # 40ms → 40% CPU
+    core: "2"             # Assigned to Core 2 → Triggers preemption!
