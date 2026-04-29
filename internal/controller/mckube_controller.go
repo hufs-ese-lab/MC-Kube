@@ -47,6 +47,12 @@ type MCKubeReconciler struct {
 var podRuntimeState = make(map[string]string) // podName -> "low" or "hi"
 var runtimeStateMutex sync.RWMutex
 
+// Track temporarily throttled victims by Pod UID (uid -> throttledAt)
+var throttledVictims = make(map[types.UID]time.Time)
+var throttledVictimsMutex sync.RWMutex
+
+const throttledVictimTTL = 30 * time.Second
+
 // CgroupRequest for RT daemon communication
 type CgroupRequest struct {
 	ContainerID string  `json:"container_id"`
@@ -143,6 +149,8 @@ func (r *MCKubeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	defer duration(track("Reconcile"))
 	logger := log.Log.WithValues("McKube/rt", req.NamespacedName)
+
+	r.cleanupExpiredThrottledVictims()
 	// Lower V() numbers indicate higher priority
 	// V: Verbosity level
 	loggerLowPrio := logger.V(1)
@@ -1236,6 +1244,10 @@ func (r *MCKubeReconciler) throttlePodRuntimeBeforeEviction(ctx context.Context,
 		return time.Time{}, fmt.Errorf("failed to throttle any container for victim pod %s", victimPod.Name)
 	}
 
+	if victimPod.UID != "" {
+		r.markThrottledVictim(victimPod.UID, throttlingAppliedAt)
+	}
+
 	return throttlingAppliedAt, nil
 }
 
@@ -1390,6 +1402,13 @@ func (r *MCKubeReconciler) applyRTSettingsToContainers(ctx context.Context, pod 
 		return nil
 	}
 
+	if pod.UID != "" && r.isVictimThrottled(pod.UID) {
+		logger.V(1).Info("Skipping RT settings apply for throttled victim pod",
+			"pod", pod.Name,
+			"uid", pod.UID)
+		return nil
+	}
+
 	nodeIP := pod.Status.HostIP
 	if nodeIP == "" {
 		return fmt.Errorf("node IP not available")
@@ -1444,6 +1463,38 @@ func (r *MCKubeReconciler) applyRTSettingsToContainers(ctx context.Context, pod 
 	}
 
 	return nil
+}
+
+// cleanupExpiredThrottledVictims removes throttled victim markers past TTL.
+func (r *MCKubeReconciler) cleanupExpiredThrottledVictims() {
+	cutoff := time.Now().Add(-throttledVictimTTL)
+
+	throttledVictimsMutex.Lock()
+	for uid, throttledAt := range throttledVictims {
+		if throttledAt.Before(cutoff) {
+			delete(throttledVictims, uid)
+		}
+	}
+	throttledVictimsMutex.Unlock()
+}
+
+// markThrottledVictim records a throttled victim Pod UID with a timestamp.
+func (r *MCKubeReconciler) markThrottledVictim(uid types.UID, throttledAt time.Time) {
+	throttledVictimsMutex.Lock()
+	throttledVictims[uid] = throttledAt
+	throttledVictimsMutex.Unlock()
+}
+
+// isVictimThrottled returns true if the Pod UID is within the throttling TTL.
+func (r *MCKubeReconciler) isVictimThrottled(uid types.UID) bool {
+	throttledVictimsMutex.RLock()
+	throttledAt, ok := throttledVictims[uid]
+	throttledVictimsMutex.RUnlock()
+	if !ok {
+		return false
+	}
+
+	return time.Since(throttledAt) <= throttledVictimTTL
 }
 
 // ===================== Finalizer Helper Functions =====================
