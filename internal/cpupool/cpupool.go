@@ -95,10 +95,13 @@ func GetPoolForNode(nodeName string) *CPUPool {
 }
 
 // RemovePodFromPool removes podName from every core on every node.
+// Returns true if any entries were removed.
 // Called when a Pod is deleted.
-func RemovePodFromPool(podName string) {
+func RemovePodFromPool(podName string) bool {
 	globalPoolsMu.RLock()
 	defer globalPoolsMu.RUnlock()
+
+	removed := false
 
 	for _, pool := range globalPools {
 		pool.Mu.Lock()
@@ -106,10 +109,13 @@ func RemovePodFromPool(podName string) {
 			if pi, ok := core.Pods[podName]; ok {
 				core.UsageMillis -= pi.CPUMillis
 				delete(core.Pods, podName)
+				removed = true
 			}
 		}
 		pool.Mu.Unlock()
 	}
+
+	return removed
 }
 
 // RemovePodsNotIn removes from all pools any pod whose name is not in existingPods.

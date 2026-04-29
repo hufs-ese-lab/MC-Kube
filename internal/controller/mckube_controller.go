@@ -654,19 +654,31 @@ func (r *MCKubeReconciler) findObjectsForPod(ctx context.Context, pod client.Obj
 // cleanupPodState: Cleans up all internal state when a Pod is deleted
 func (r *MCKubeReconciler) cleanupPodState(podName, namespace string) {
 	logger := log.Log.WithValues("McKube/rt.Cleanup", "PodState", "pod", podName)
-	logger.V(0).Info("Cleaning up internal state for deleted pod")
 
 	// 1. Clean up Controller's podRuntimeState
+	removedRuntimeState := false
 	runtimeStateMutex.Lock()
 	if _, exists := podRuntimeState[podName]; exists {
 		delete(podRuntimeState, podName)
-		logger.V(0).Info("Removed pod from runtime state tracking")
+		removedRuntimeState = true
 	}
 	runtimeStateMutex.Unlock()
 
 	// 2. Remove the Pod from the shared in-memory CPU Pool.
-	cpupool.RemovePodFromPool(podName)
-	logger.V(0).Info("Removed pod from shared CPU pool")
+	removedFromPool := cpupool.RemovePodFromPool(podName)
+
+	if !removedRuntimeState && !removedFromPool {
+		return
+	}
+
+	logger.V(0).Info("Cleaning up internal state for deleted pod")
+
+	if removedRuntimeState {
+		logger.V(0).Info("Removed pod from runtime state tracking")
+	}
+	if removedFromPool {
+		logger.V(0).Info("Removed pod from shared CPU pool")
+	}
 
 	logger.V(0).Info("Pod state cleanup completed")
 }
