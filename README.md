@@ -1,4 +1,4 @@
-# MC-Kube: Mixed-Criticality Workload Management for Kubernetes
+# MCKube: Mixed-Criticality Workload Management for Kubernetes
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.34.1+-326CE5.svg?logo=kubernetes)](https://kubernetes.io/)
@@ -17,22 +17,22 @@
 - **📈 Proven Performance**: Achieved **86% reduction in deadline misses** in high-load scenarios.
 
 ## Architecture
-![MC-Kube Architecture](attached/architecture.png)
+![MCKube Architecture](attached/architecture.png)
 
 ## Quick Start
 
 ### Prerequisites
 - Kubernetes v1.34+ Cluster
-- **Linux Kernel v6.13+** with [hierarchical-CBS patch](https://github.com/hufs-ese-lab/HCBS-patch/tree/for-mc-kube) (REQUIRED)
+- **Linux Kernel v6.13+** with [hierarchical-CBS patch](https://github.com/hufs-eselab/HCBS-patch/tree/for-mc-kube) (REQUIRED)
 - `kubectl`, `docker`
 
 ### Installation
-Deploy the MC-Kube operator and CRDs in one go:
+Deploy the MCKube operator and CRDs in one go:
 
 ```sh
 # 1. Install CRDs & Operator
 make install
-make deploy IMG=ghcr.io/hufs-ese-lab/mc-kube:latest
+make deploy IMG=ghcr.io/hufs-eselab/mckube:latest
 
 # 2. Check Deployment
 kubectl get pods -n mc-kube-system
