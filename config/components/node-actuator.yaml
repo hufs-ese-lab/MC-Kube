@@ -18,7 +18,7 @@ spec:
       hostNetwork: true
       containers:
       - name: node-actuator
-        image: ghcr.io/hufs-ese-lab/node-actuator:v2
+        image: ghcr.io/hufs-eselab/node-actuator:latest
         imagePullPolicy: Always
         securityContext:
           privileged: true
@@ -31,6 +31,9 @@ spec:
           mountPath: /run/containerd/containerd.sock
         - name: crictl-bin
           mountPath: /usr/local/bin/crictl
+          readOnly: true
+        - name: shared-token
+          mountPath: /etc/mckube
           readOnly: true
         resources:
           limits:
@@ -57,6 +60,9 @@ spec:
       - name: crictl-bin
         hostPath:
           path: /usr/bin/crictl
+      - name: shared-token
+        secret:
+          secretName: mckube-shared-token
 ---
 apiVersion: v1
 kind: ServiceAccount

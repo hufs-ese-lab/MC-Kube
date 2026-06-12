@@ -92,5 +92,13 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+        volumeMounts:
+        - name: shared-token
+          mountPath: /etc/mckube
+          readOnly: true
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
+      volumes:
+      - name: shared-token
+        secret:
+          secretName: mckube-shared-token

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -967,6 +968,17 @@ func (r *MCKubeReconciler) findPodByContainerID(ctx context.Context, nodeName st
 	return nil, nil
 }
 
+func getSharedToken() string {
+	if token := os.Getenv("MCKUBE_SHARED_TOKEN"); token != "" {
+		return token
+	}
+	tokenBytes, err := os.ReadFile("/etc/mckube/token")
+	if err == nil {
+		return strings.TrimSpace(string(tokenBytes))
+	}
+	return ""
+}
+
 // SendRTRequest sends RT configuration request to daemon (implements RTRequestSender interface)
 func (r *MCKubeReconciler) SendRTRequest(nodeIP string, req CgroupRequest) error {
 	reqBody, err := json.Marshal(req)
@@ -975,7 +987,16 @@ func (r *MCKubeReconciler) SendRTRequest(nodeIP string, req CgroupRequest) error
 	}
 
 	url := fmt.Sprintf("http://%s:8080/cgroup", nodeIP)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request to node-actuator: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if token := getSharedToken(); token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("failed to send request to %s: %v", url, err)
 	}

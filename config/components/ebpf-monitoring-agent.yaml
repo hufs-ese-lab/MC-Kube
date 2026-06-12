@@ -23,7 +23,7 @@ spec:
       serviceAccountName: ebpf-monitoring-agent
       containers:
       - name: ebpf-agent
-        image: ghcr.io/hufs-ese-lab/ebpf-monitoring-agent:v1
+        image: ghcr.io/hufs-eselab/ebpf-monitoring-agent:latest
         imagePullPolicy: Always
         securityContext:
           privileged: true

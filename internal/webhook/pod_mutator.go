@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -265,6 +266,17 @@ func (m *PodMutator) scheduleRTConfiguration(ctx context.Context, pod *corev1.Po
 	}
 }
 
+func getSharedToken() string {
+	if token := os.Getenv("MCKUBE_SHARED_TOKEN"); token != "" {
+		return token
+	}
+	tokenBytes, err := os.ReadFile("/etc/mckube/token")
+	if err == nil {
+		return strings.TrimSpace(string(tokenBytes))
+	}
+	return ""
+}
+
 func (m *PodMutator) applyRTSettingsViaDaemon(ctx context.Context, pod *corev1.Pod, rtSettings *mcoperatorv1.RTSettings) bool {
 	// Get the node's IP where the pod is running
 	node := &corev1.Node{}
@@ -323,8 +335,18 @@ func (m *PodMutator) applyRTSettingsViaDaemon(ctx context.Context, pod *corev1.P
 		return false
 	}
 
+	req, err := http.NewRequest("POST", daemonURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		log.Log.Error(err, "Failed to create request to node-actuator")
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token := getSharedToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(daemonURL, "application/json", bytes.NewBuffer(jsonBody))
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Log.Error(err, "Failed to call node-actuator", "url", daemonURL)
 		return false
